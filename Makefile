@@ -1,4 +1,4 @@
-.PHONY: all linux mac windows remove
+.PHONY: all linux mac windows clean
 
 all: linux mac windows
 linux: linux_amd64 linux_arm64
@@ -24,6 +24,6 @@ windows:
 	@echo "Building for Windows..."
 	GOOS=windows GOARCH=amd64 go build -o bin/nsec3walker.exe main.go
 
-remove:
+clean:
 	@echo "Removing builds..."
 	rm -f bin/nsec3walker.*

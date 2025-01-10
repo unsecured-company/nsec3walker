@@ -14,12 +14,14 @@ import (
 	"time"
 )
 
-const DnsPort = "53"
-const DomainGeneratorMaxLength = 20
-const GenericServers = "8.8.8.8:53,1.1.1.1:53,9.9.9.9:53"
-const LogCounterIntervalSec = 30
-const QuitAfterMin = 2
-const WaitMs = 100
+const (
+	DnsPort                  = "53"
+	DomainGeneratorMaxLength = 20
+	GenericServers           = "8.8.8.8:53,1.1.1.1:53,9.9.9.9:53"
+	LogCounterIntervalSec    = 30
+	QuitAfterMin             = 2
+	WaitMs                   = 100
+)
 
 type Config struct {
 	Domain                string
