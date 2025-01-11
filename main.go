@@ -152,7 +152,6 @@ func (nw *NSec3Walker) Run() (err error) {
 
 	for _, ns := range nw.config.DomainDnsServers {
 		go nw.workerForAuthNs(ns)
-		break
 	}
 
 	go nw.stats.logCounterChanges(time.Second*time.Duration(nw.config.LogCounterIntervalSec), nw.config.QuitAfterMin)
