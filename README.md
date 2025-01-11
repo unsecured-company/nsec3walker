@@ -59,5 +59,6 @@ hashcat -m 8300 -a 3 --increment --custom-charset1 ?l?d- cz.hash ?1?1?1?1?1?1?1?
 
 ## Todo
 
-While it's possible to predict the zone size (total number of domains), setting a sufficient timeout
-with `--quit-after` (e.g., 10 minutes) usually collects the whole zone.
+- Query only fitting hashes - generate locally and test where they fit in the chain
+- -o --output option for specifying output file prefix (.hash & .log)
+- --ignore-change option for ignoring changes in the zone

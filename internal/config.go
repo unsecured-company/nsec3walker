@@ -1,0 +1,77 @@
+package nsec3walker
+
+import (
+	"github.com/spf13/cobra"
+	"os"
+	"path/filepath"
+)
+
+const (
+	GenericServers        = "8.8.8.8:53,1.1.1.1:53,9.9.9.9:53"
+	LogCounterIntervalSec = 30
+	QuitAfterMin          = 2
+)
+
+type Config struct {
+	DebugDomain           string
+	Domain                string
+	DomainDnsServers      []string
+	GenericDnsServers     []string
+	Help                  bool
+	LogCounterIntervalSec uint
+	QuitAfterMin          uint
+	Verbose               bool
+}
+
+func NewConfig() (config Config, err error) {
+	long := "A tool for traversing NSEC3 DNS hashes for a specified domain using its authoritative NS servers.\n"
+	long += "It will run until no hashes are received for X (default 2) minutes.\nSTDOUT - hashes\nSTDERR - logging\n"
+
+	var rootCmd = &cobra.Command{
+		Use:           filepath.Base(os.Args[0]) + " [flags] domain",
+		Short:         "NSEC3 Walker - Discover and traverse NSEC3 DNS hashes",
+		Long:          long,
+		Args:          cobra.ArbitraryArgs,
+		SilenceErrors: true,
+		Run: func(cmd *cobra.Command, args []string) {
+			if len(args) == 0 && cmd.Flags().NFlag() == 0 {
+				config.Help = true
+				_ = cmd.Help()
+
+				return
+			}
+
+			if len(args) > 0 {
+				config.Domain = args[0]
+			}
+		},
+	}
+
+	var genericServerInput string
+	var domainServerInput string
+
+	rootCmd.Flags().StringVar(&genericServerInput, "resolver", GenericServers, "Comma-separated list of generic DNS resolvers")
+	rootCmd.Flags().StringVar(&domainServerInput, "domain-ns", "", "Comma-separated list of custom authoritative NS servers for the domain")
+	rootCmd.Flags().BoolVarP(&config.Verbose, "verbose", "v", false, "Enable verbose output")
+	rootCmd.Flags().BoolVarP(&config.Help, "help", "h", false, "Help!")
+	rootCmd.Flags().UintVar(&config.LogCounterIntervalSec, "progress", LogCounterIntervalSec, "Counters print interval in seconds")
+	rootCmd.Flags().UintVar(&config.QuitAfterMin, "quit-after", QuitAfterMin, "Quit after X minutes of no new hashes")
+	rootCmd.Flags().StringVar(&config.DebugDomain, "debug-domain", "", "Will print debug info for a specified domain")
+
+	if err := rootCmd.Execute(); err != nil {
+		return config, err
+	}
+
+	if config.Help {
+		return config, nil
+	}
+
+	config.GenericDnsServers = parseDnsServers(genericServerInput)
+	config.DomainDnsServers = parseDnsServers(domainServerInput)
+
+	if len(config.DomainDnsServers) == 0 {
+		config.DomainDnsServers, err = getAuthNsServers(config.Domain, config.GenericDnsServers)
+	}
+
+	return
+}
