@@ -236,7 +236,11 @@ func (nw *NSec3Walker) extractNSEC3Hashes(domain string, authNsServer string) (e
 				// salt or iterations changed, we need to start over
 			}
 
-			nw.chanHashesFound <- strings.ToLower(nsec3.NextDomain)
+			start := strings.Split(nsec3.Header().Name, ".")[0]
+			end := strings.ToLower(nsec3.NextDomain)
+
+			nw.chanHashesFound <- start
+			nw.chanHashesFound <- end
 		}
 	}
 
