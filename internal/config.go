@@ -21,6 +21,7 @@ type Config struct {
 	LogCounterIntervalSec uint
 	QuitAfterMin          uint
 	Verbose               bool
+	StopOnChange          bool
 }
 
 func NewConfig() (config Config, err error) {
@@ -57,6 +58,7 @@ func NewConfig() (config Config, err error) {
 	rootCmd.Flags().UintVar(&config.LogCounterIntervalSec, "progress", LogCounterIntervalSec, "Counters print interval in seconds")
 	rootCmd.Flags().UintVar(&config.QuitAfterMin, "quit-after", QuitAfterMin, "Quit after X minutes of no new hashes")
 	rootCmd.Flags().StringVar(&config.DebugDomain, "debug-domain", "", "Will print debug info for a specified domain")
+	rootCmd.Flags().BoolVar(&config.StopOnChange, "stop-on-change", false, "Will stop the walker if the zone changed")
 
 	if err := rootCmd.Execute(); err != nil {
 		return config, err

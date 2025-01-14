@@ -3,9 +3,10 @@
 A DNS zone hash collection tool that implements NSEC3 walking.
 This tool retrieves DNS zone hashes which can later be cracked to discover existing (sub)domains.
 The walker continues running until no new hashes are found for a specified duration (configurable via `--quit-after`).
+Written in Go, working on Windows, MacOS, and Linux.
 
 ## Install
-    
+
 ```shell
 go install github.com/vitezslav-lindovsky/nsec3walker@latest
 ```
@@ -40,12 +41,15 @@ Usage:
   nsec3walker [flags] domain
 
 Flags:
-      --domain-ns string      Specify custom authoritative NS servers for the domain (comma-separated)
-  -h, --help                  Display help information
-      --progress uint         Set the interval (in seconds) for printing progress counters (default: 30)
-      --quit-after uint      Stop execution after specified minutes of no new hashes (default: 2)
-      --resolver string       Specify DNS resolvers (comma-separated) (default: "8.8.8.8:53,1.1.1.1:53,9.9.9.9:53")
+      --debug-domain string   Will print debug info for a specified domain
+      --domain-ns string      Comma-separated list of custom authoritative NS servers for the domain
+  -h, --help                  Help!
+      --progress uint         Counters print interval in seconds (default 30)
+      --quit-after uint       Quit after X minutes of no new hashes (default 2)
+      --resolver string       Comma-separated list of generic DNS resolvers (default "8.8.8.8:53,1.1.1.1:53,9.9.9.9:53")
+      --stop-on-change        Will stop the walker if the zone changed
   -v, --verbose               Enable verbose output
+
 ```
 
 ## Hash Cracking
@@ -54,11 +58,9 @@ The collected hashes can be cracked using `hashcat` with mode 8300.
 The following example demonstrates cracking domains up to 10 characters long:
 
 ```shell
-hashcat -m 8300 -a 3 --increment --custom-charset1 ?l?d- cz.hash ?1?1?1?1?1?1?1?1?1?1
+hashcat -m 8300 -a 3 --increment --custom-charset1 "?l?d-" cz.hash "?1?1?1?1?1?1?1?1?1?1"
 ```
 
 ## Todo
-
-- Query only fitting hashes - generate locally and test where they fit in the chain
 - -o --output option for specifying output file prefix (.hash & .log)
-- --ignore-change option for ignoring changes in the zone
+- zone size estimation and progress bar

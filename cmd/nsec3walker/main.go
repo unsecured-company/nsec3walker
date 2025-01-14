@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	nsec3walker "github.com/vitezslav-lindovsky/nsec3walker/internal"
 	"log"
 )
@@ -21,7 +22,16 @@ func main() {
 	}
 
 	nw := nsec3walker.NewNSec3Walker(config)
-	err = nw.Run()
+
+	if config.DebugDomain != "" {
+		err = nw.RunDebug(config.DebugDomain)
+
+		x := nsec3walker.NewRangeIndex()
+		fmt.Println(x)
+
+	} else {
+		err = nw.Run()
+	}
 
 	if err != nil {
 		log.Fatalf("Error: %v\n", err)

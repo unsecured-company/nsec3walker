@@ -4,11 +4,9 @@ import (
 	"fmt"
 	"github.com/miekg/dns"
 	"log"
-	"math"
 	"math/rand"
 	"os"
 	"strings"
-	"sync/atomic"
 	"time"
 )
 
@@ -17,20 +15,13 @@ const (
 	WaitMs                   = 100
 )
 
-type Stats struct {
-	queries              atomic.Int64
-	hashes               atomic.Int64
-	queriesWithoutResult atomic.Int64
-	secondsWithoutResult atomic.Int64
-}
-
 type NSec3Walker struct {
 	config Config
 	stats  Stats
-	memory map[string]int
+	ranges *RangeIndex
 
 	chanDomains     chan string
-	chanHashesFound chan string
+	chanHashesFound chan Nsec3Record
 	chanHashesNew   chan string
 
 	nsec struct {
@@ -40,12 +31,17 @@ type NSec3Walker struct {
 	}
 }
 
+type Nsec3Record struct {
+	Start string
+	End   string
+}
+
 func NewNSec3Walker(config Config) (nsecWalker *NSec3Walker) {
 	nsecWalker = &NSec3Walker{
 		config:          config,
 		chanDomains:     make(chan string, 1000),
-		chanHashesFound: make(chan string, 1000),
-		memory:          make(map[string]int),
+		chanHashesFound: make(chan Nsec3Record, 1000),
+		ranges:          NewRangeIndex(),
 	}
 
 	nsecWalker.nsec.domain = config.Domain
@@ -53,9 +49,40 @@ func NewNSec3Walker(config Config) (nsecWalker *NSec3Walker) {
 	return
 }
 
+func (nw *NSec3Walker) RunDebug(domain string) (err error) {
+	log.Println("Showing debug data for domain: ", domain)
+	log.Println("NS servers to walk: ", nw.config.DomainDnsServers)
+
+	for _, ns := range nw.config.DomainDnsServers {
+		r, err := getNsResponse(domain, ns)
+
+		fmt.Printf("querying %s via %s\n===Err===\n%v\n\n===Response===\n%s\n\n\n", domain, ns, err, r)
+
+		if err != nil {
+			continue
+		}
+
+		for _, rr := range r.Ns {
+			if nsec3, ok := rr.(*dns.NSEC3); ok {
+
+				first := strings.Split(nsec3.Header().Name, ".")[0]
+				fmt.Println(first + ";" + strings.ToLower(nsec3.NextDomain))
+			}
+		}
+	}
+
+	return
+}
+
 func (nw *NSec3Walker) Run() (err error) {
 	log.Printf("Starting NSEC3 walker for domain [%s]\n", nw.nsec.domain)
 	log.Println("NS servers to walk: ", nw.config.DomainDnsServers)
+
+	err = nw.initNsec3Values()
+
+	if err != nil {
+		return
+	}
 
 	go nw.domainGenerator()
 
@@ -66,16 +93,43 @@ func (nw *NSec3Walker) Run() (err error) {
 	go nw.stats.logCounterChanges(time.Second*time.Duration(nw.config.LogCounterIntervalSec), nw.config.QuitAfterMin)
 
 	for hash := range nw.chanHashesFound {
-		if nw.checkMemory(hash) {
+		startExists, endExists, err := nw.ranges.Add(hash.Start, hash.End)
+
+		if err != nil {
+			if nw.config.StopOnChange {
+				return err
+			}
+
+			log.Println(err)
+		}
+
+		if startExists {
 			continue
 		}
 
-		nw.stats.gotHash()
+		fmt.Printf("%s:.%s:%s:%d\n", hash.Start, nw.nsec.domain, nw.nsec.salt, nw.nsec.iterations)
 
-		fmt.Printf("%s:.%s:%s:%d\n", hash, nw.nsec.domain, nw.nsec.salt, nw.nsec.iterations)
+		if !endExists {
+			fmt.Printf("%s:.%s:%s:%d\n", hash.End, nw.nsec.domain, nw.nsec.salt, nw.nsec.iterations)
+		}
+
+		nw.stats.gotHash(nw.ranges.cntChains.Load())
 	}
 
 	return
+}
+
+func (nw *NSec3Walker) initNsec3Values() (err error) {
+	for _, ns := range nw.config.DomainDnsServers {
+		randomDomain := fmt.Sprintf("%d-%d.%s", time.Now().UnixMilli(), rand.Uint32(), nw.nsec.domain)
+		err = nw.extractNSEC3Hashes(randomDomain, ns)
+
+		if err == nil {
+			return
+		}
+	}
+
+	return fmt.Errorf("could not get NSEC3 values from any of the DNS servers")
 }
 
 func (nw *NSec3Walker) domainGenerator() {
@@ -91,21 +145,15 @@ func (nw *NSec3Walker) domainGenerator() {
 		for i := 0; i < DomainGeneratorMaxLength-2; i++ {
 			result = append(result, chars[rand.Intn(chLen)])
 
-			nw.chanDomains <- string(result) + "." + nw.nsec.domain
+			domain := string(result) + "." + nw.nsec.domain
+
+			nw.chanDomains <- domain
 		}
 	}
 }
 
 func (nw *NSec3Walker) extractNSEC3Hashes(domain string, authNsServer string) (err error) {
-	c := dns.Client{}
-	m := dns.Msg{}
-	m.SetQuestion(dns.Fqdn(domain), dns.TypeNS)
-	m.SetEdns0(4096, true)
-	c.DialTimeout = time.Second * 3
-	c.ReadTimeout = time.Second * 10
-	c.WriteTimeout = time.Second * 3
-
-	r, _, err := c.Exchange(&m, authNsServer)
+	r, err := getNsResponse(domain, authNsServer)
 
 	if err != nil {
 		return
@@ -121,11 +169,10 @@ func (nw *NSec3Walker) extractNSEC3Hashes(domain string, authNsServer string) (e
 				// salt or iterations changed, we need to start over
 			}
 
-			start := strings.Split(nsec3.Header().Name, ".")[0]
-			end := strings.ToLower(nsec3.NextDomain)
+			hashStart := strings.ToLower(strings.Split(nsec3.Header().Name, ".")[0])
+			hashEnd := strings.ToLower(nsec3.NextDomain)
 
-			nw.chanHashesFound <- start
-			nw.chanHashesFound <- end
+			nw.chanHashesFound <- Nsec3Record{hashStart, hashEnd}
 		}
 	}
 
@@ -151,20 +198,14 @@ func (nw *NSec3Walker) setNsec3Values(salt string, iterations uint16) (err error
 	return
 }
 
-func (nw *NSec3Walker) checkMemory(hash string) (exists bool) {
-	_, exists = nw.memory[hash]
-
-	if !exists {
-		nw.memory[hash] = 0
-	}
-
-	nw.memory[hash]++
-
-	return
-}
-
 func (nw *NSec3Walker) workerForAuthNs(ns string) {
 	for domain := range nw.chanDomains {
+		isInRange := nw.isDomainInRange(domain)
+
+		if isInRange {
+			continue
+		}
+
 		time.Sleep(time.Millisecond * WaitMs)
 
 		err := nw.extractNSEC3Hashes(domain, ns)
@@ -195,62 +236,18 @@ func (nw *NSec3Walker) logVerbose(text string) {
 	log.Println(text)
 }
 
-func (stats *Stats) logCounterChanges(interval time.Duration, quitAfterMin uint) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+func (nw *NSec3Walker) isDomainInRange(domain string) (inRange bool) {
+	hash, err := CalculateNSEC3(domain, nw.nsec.salt, nw.nsec.iterations)
 
-	var cntQueryLast int64
-	var cntHashLast int64
-
-	for {
-		<-ticker.C
-		cntQuery := stats.queries.Load()
-		cntHash := stats.hashes.Load()
-		cntQ := atomic.LoadInt64(&cntQuery)
-		cntH := atomic.LoadInt64(&cntHash)
-		deltaQ := cntQ - cntQueryLast
-		deltaH := cntH - cntHashLast
-		ratioTotal := calculateRatio(cntH, cntQ)
-		ratioDelta := calculateRatio(deltaH, deltaQ)
-
-		msg := "In the last %v: Queries total/change %d/%d | Hashes total/change: %d/%d | Ratio total/change %d%%/%d%% | Without answer: %d , seconds %d\n"
-		log.Printf(msg, interval, cntQ, deltaQ, cntH, deltaH, ratioTotal, ratioDelta, stats.queriesWithoutResult.Load(), stats.secondsWithoutResult.Load())
-
-		cntQueryLast = cntQ
-		cntHashLast = cntH
-		stats.secondsWithoutResult.Add(int64(interval.Seconds()))
-
-		secWithoutResult := stats.secondsWithoutResult.Load()
-
-		if secWithoutResult >= int64(quitAfterMin*60) {
-			log.Printf("No new hashes for %d seconds, quitting\n", secWithoutResult)
-			os.Exit(0)
-		}
-	}
-}
-
-func (stats *Stats) gotHash() {
-	stats.hashes.Add(1)
-	stats.queriesWithoutResult.Store(0)
-	stats.secondsWithoutResult.Store(0)
-}
-
-func (stats *Stats) didQuery() {
-	stats.queries.Add(1)
-	stats.queriesWithoutResult.Add(1)
-}
-
-func calculateRatio(numerator, denominator int64) int {
-	if denominator == 0 {
-		return 0
+	if err != nil {
+		log.Fatalf("Error calculating NSEC3 for %s: %v\n", domain, err)
 	}
 
-	ratio := int(math.Round((float64(numerator) / float64(denominator)) * 100))
+	inRange, where := nw.ranges.isHashInRange(hash)
 
-	// Sometimes goes over 100% - great work, comrades!
-	if ratio > 100 {
-		return 100
+	if inRange {
+		nw.logVerbose(fmt.Sprintf("Domain <%s> [%s] is in range [%s]", domain, hash, where))
 	}
 
-	return ratio
+	return
 }
