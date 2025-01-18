@@ -1,13 +1,15 @@
 package nsec3walker
 
 import (
+	"errors"
 	"fmt"
-	"github.com/miekg/dns"
 	"log"
 	"math/rand"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 const (
@@ -77,9 +79,7 @@ func (nw *NSec3Walker) RunDebug(domain string) (err error) {
 func (nw *NSec3Walker) Run() (err error) {
 	log.Printf("Starting NSEC3 walker for domain [%s]\n", nw.nsec.domain)
 	log.Println("NS servers to walk: ", nw.config.DomainDnsServers)
-
 	err = nw.initNsec3Values()
-
 	if err != nil {
 		return
 	}
@@ -154,12 +154,17 @@ func (nw *NSec3Walker) domainGenerator() {
 
 func (nw *NSec3Walker) extractNSEC3Hashes(domain string, authNsServer string) (err error) {
 	r, err := getNsResponse(domain, authNsServer)
-
 	if err != nil {
 		return
 	}
 
 	for _, rr := range r.Ns {
+		if nsec, ok := rr.(*dns.NSEC); ok {
+			if strings.HasPrefix(nsec.NextDomain, "\\000") {
+				log.Printf("Black lies detected on %s, skipping this name server\n", authNsServer)
+				return errors.New("black lies")
+			}
+		}
 		if nsec3, ok := rr.(*dns.NSEC3); ok {
 			err = nw.setNsec3Values(nsec3.Salt, nsec3.Iterations)
 
@@ -171,7 +176,10 @@ func (nw *NSec3Walker) extractNSEC3Hashes(domain string, authNsServer string) (e
 
 			hashStart := strings.ToLower(strings.Split(nsec3.Header().Name, ".")[0])
 			hashEnd := strings.ToLower(nsec3.NextDomain)
-
+			if hashStart[:len(hashStart)-1] == hashEnd[:len(hashStart)-1] {
+				log.Printf("White lies detected on %s, skipping this name server\n", authNsServer)
+				return errors.New("white lies")
+			}
 			nw.chanHashesFound <- Nsec3Record{hashStart, hashEnd}
 		}
 	}
