@@ -2,47 +2,121 @@ package nsec3walker
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"sync/atomic"
+
+	rbt "github.com/emirpasic/gods/trees/redblacktree"
 )
 
-/**
-Format:
-[first-two-chars-of-hash]: [start-hash] = end-hash
-[a1]: [a1xxxx1]=a1xxxx1
-[a1]: [a1xxxx2]=yyyyyyy
-*/
+type HashTree struct {
+	tree  *rbt.Tree
+	mutex sync.RWMutex
+}
 
-const RangePrefixSize = 2
+func NewHashTree() (hashTree *HashTree) {
+	hashTree = &HashTree{
+		tree: rbt.NewWithStringComparator(),
+	}
+	return
+}
+
+func (ht *HashTree) Add(key, val string) {
+	ht.mutex.Lock()
+	defer ht.mutex.Unlock()
+	ht.tree.Put(key, val)
+}
+
+func (ht *HashTree) Get(key string) (value string, exists bool) {
+	ht.mutex.RLock()
+	defer ht.mutex.RUnlock()
+	valInterface, exists := ht.tree.Get(key)
+	if exists {
+		value = valInterface.(string)
+	}
+	return
+}
+
+func (ht *HashTree) GetLastRange() (key, val string) {
+	ht.mutex.RLock()
+	defer ht.mutex.RUnlock()
+	lastNode := ht.tree.Right()
+	if lastNode != nil {
+		return lastNode.Key.(string), lastNode.Value.(string)
+	}
+	return
+}
+
+func (ht *HashTree) Print() {
+	ht.mutex.RLock()
+	defer ht.mutex.RUnlock()
+	iterator := ht.tree.Iterator()
+	for iterator.Next() {
+		log.Printf("Range %s => %s", iterator.Key().(string), iterator.Value().(string))
+	}
+}
+
+func (ht *HashTree) allRangesComplete() bool {
+	ht.mutex.RLock()
+	defer ht.mutex.RUnlock()
+	iterator := ht.tree.Iterator()
+	firstHash := ""
+	lastEndHash := ""
+	for iterator.Next() {
+		startHash := iterator.Key().(string)
+		endHash := iterator.Value().(string)
+		if firstHash == "" {
+			firstHash = startHash
+		} else if startHash != lastEndHash {
+			return false
+		}
+		if endHash == "" {
+			return false
+		}
+		lastEndHash = endHash
+	}
+	// if we get here all ranges have an end
+	// we just need to check the last range wraps around (which it will unless the last hash is zzzzzzzzzzzzz)
+	return lastEndHash == firstHash
+}
+
+// returns range that starts with the largest key that is less than the input hash
+func (ht *HashTree) ClosestBefore(input string) (startHash string, endHash string, found bool) {
+	// TODO: Why cant we use range and built in iterator?
+	ht.mutex.RLock()
+	defer ht.mutex.RUnlock()
+	iterator := ht.tree.Iterator()
+	for iterator.Next() {
+		if iterator.Key().(string) >= input {
+			break
+		}
+	}
+	if iterator.Prev() {
+		startHash = iterator.Key().(string)
+		endHash = iterator.Value().(string)
+		found = true
+	}
+	return
+}
 
 type RangeIndex struct {
-	Index          map[string]map[string]string
+	index          *HashTree
 	cntChains      atomic.Int64
 	cntChainsEmpty atomic.Int64
-	ignoreChanges  bool
-	mutex          sync.RWMutex
+	ignoreChanges  bool // TODO never used
+	addMutex       sync.Mutex
 }
 
 func NewRangeIndex() (rangeIndex *RangeIndex) {
 	rangeIndex = &RangeIndex{
-		Index: make(map[string]map[string]string),
+		index: NewHashTree(),
 	}
-
-	// NSEC3 are encoded in Base32
-	base32chars := "0123456789abcdefghijklmnopqrstuv"
-
-	for _, char1 := range base32chars {
-		for _, char2 := range base32chars {
-			prefix := string([]rune{char1, char2})
-			rangeIndex.Index[prefix] = make(map[string]string)
-		}
-	}
-
 	return
 }
 
-func getPrefix(hash string) string {
-	return hash[:RangePrefixSize]
+// Prints all known ranges
+func (ri *RangeIndex) Print() {
+	ri.index.Print()
 }
 
 func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, existsEnd bool, err error) {
@@ -50,39 +124,23 @@ func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, e
 	If hashStart key already exists, check the value didn't change (hashEnd)
 	If hashEnd does not exists, add it with empty value
 	*/
-	prefixStart := getPrefix(hashStart)
-	prefixEnd := getPrefix(hashEnd)
-
-	ri.mutex.RLock()
-	existingStartValAsStart, existsStart := ri.Index[prefixStart][hashStart]
-	_, existsEnd = ri.Index[prefixEnd][hashEnd]
-	ri.mutex.RUnlock()
+	ri.addMutex.Lock() // this mutex is for ensuring correct values of cntChains and cntChainsEmpty
+	existingStartValAsStart, existsStart := ri.index.Get(hashStart)
+	_, existsEnd = ri.index.Get(hashEnd)
 
 	// !existsStart = adding full chain from start to end
 	// !existsEnd adding end of chan as start with empty end
 
 	// existsAndDifferentEnd = start exists and end is different
 	existsAndDifferentEnd := existsStart && existingStartValAsStart != "" && existingStartValAsStart != hashEnd
-	// existsStartWithEmptyEnd = start exists and end is empty, from being End before
-	existsStartWithEmptyEnd := existsStart && existingStartValAsStart == ""
-	updateStartValue := !existsStart || existsStartWithEmptyEnd || (existsAndDifferentEnd && ri.ignoreChanges)
-
 	if existsAndDifferentEnd {
 		msg := "range starting %s already exists with different hashEnd! Existing: %s | New: %s"
 		err = fmt.Errorf(msg, hashStart, existingStartValAsStart, hashEnd)
 	}
 
-	/*
-		debugging the brain-work here
-		if !existsStart && !existsEnd {
-			log.Printf("Adding range %s - %s\n", hashStart, hashEnd)
-		} else {
-			log.Printf("both exists %s - %s\n", hashStart, hashEnd)
-		}
-
-		msg := "existsStart %v | existsEnd %v | existsAndDifferentEnd %v | existsStartWithEmptyEnd %v | updateStartValue %v\n"
-		log.Printf(msg, existsStart, existsEnd, existsAndDifferentEnd, existsStartWithEmptyEnd, updateStartValue)
-	*/
+	// existsStartWithEmptyEnd = start exists and end is empty, from being End before
+	existsStartWithEmptyEnd := existsStart && existingStartValAsStart == ""
+	updateStartValue := !existsStart || existsStartWithEmptyEnd || (existsAndDifferentEnd && ri.ignoreChanges)
 
 	if !existsStart {
 		ri.cntChains.Add(1)
@@ -93,43 +151,30 @@ func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, e
 	}
 
 	if updateStartValue {
-		ri.mutex.Lock()
-		ri.Index[prefixStart][hashStart] = hashEnd
-		ri.mutex.Unlock()
+		ri.index.Add(hashStart, hashEnd)
 	}
 
 	if !existsEnd {
-		ri.mutex.Lock()
-		ri.Index[prefixEnd][hashEnd] = ""
 		ri.cntChainsEmpty.Add(1)
-		ri.mutex.Unlock()
+		ri.index.Add(hashEnd, "")
 	}
-
+	ri.addMutex.Unlock()
 	return
 }
 
 // isHashInRange determines whether a given hash falls within any of the stored hash ranges.
-//
-// This function may produce false negatives in specific edge cases where the zone of hashes
-// is very small or spans across prefix boundaries. For example, consider a saved range with
-// a prefix starting at "10..." and ending at "30...", and we are looking for a hash "20...".
-// If the prefix derived from the hash is "20", the function might not find a match due to
-// how ranges are indexed by prefix.
-// However, as this function is only used to avoid querying domains whose hashes are already
-// within the known ranges, these false negatives are acceptable for its intended purpose.
-// If I get bored I will rewrite it to binary search.
 func (ri *RangeIndex) isHashInRange(hash string) (inRange bool, exactRange string) {
-	prefix := getPrefix(hash)
+	// first check edge case of hash being between last and first hash
+	lastHash, lastVal := ri.index.GetLastRange()
+	if lastVal != "" && lastVal < lastHash && (hash < lastVal || hash > lastHash) {
+		exactRange = lastHash + "=" + lastVal
+		return true, exactRange
+	}
 
-	ri.mutex.RLock()
-	defer ri.mutex.RUnlock()
-
-	ranges, _ := ri.Index[prefix]
-
-	for start, end := range ranges {
-		if start <= hash && hash <= end {
-			exactRange = start + "=" + end
-
+	closestStart, closestEnd, hasClosest := ri.index.ClosestBefore(hash)
+	if hasClosest {
+		if hash <= closestEnd {
+			exactRange = closestStart + "=" + closestEnd
 			return true, exactRange
 		}
 	}

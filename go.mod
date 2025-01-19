@@ -3,6 +3,7 @@ module github.com/vitezslav-lindovsky/nsec3walker
 go 1.23.2
 
 require (
+	github.com/emirpasic/gods v1.18.1
 	github.com/miekg/dns v1.1.62
 	github.com/spf13/cobra v1.8.1
 )
