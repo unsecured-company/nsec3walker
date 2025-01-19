@@ -92,8 +92,9 @@ func (nw *NSec3Walker) Run() (err error) {
 
 	go nw.stats.logCounterChanges(time.Second*time.Duration(nw.config.LogCounterIntervalSec), nw.config.QuitAfterMin)
 
+	var startExists, endExists bool
 	for hash := range nw.chanHashesFound {
-		startExists, endExists, err := nw.ranges.Add(hash.Start, hash.End)
+		startExists, endExists, err = nw.ranges.Add(hash.Start, hash.End)
 
 		if err != nil {
 			if nw.config.StopOnChange {
@@ -101,6 +102,15 @@ func (nw *NSec3Walker) Run() (err error) {
 			}
 
 			log.Println(err)
+		}
+		if nw.ranges.cntChainsEmpty.Load() == 0 {
+			if nw.ranges.index.allRangesComplete() {
+				if nw.config.Verbose {
+					nw.ranges.Print()
+				}
+				log.Println("All hashes found")
+				return
+			}
 		}
 
 		if startExists {
@@ -193,11 +203,11 @@ func (nw *NSec3Walker) setNsec3Values(salt string, iterations uint16) (err error
 	}
 
 	if nw.nsec.salt != "" && nw.nsec.salt != salt {
-		return fmt.Errorf("NSEC3 salt changed from %s to %s\n", nw.nsec.salt, salt)
+		return fmt.Errorf("NSEC3 salt changed from %s to %s", nw.nsec.salt, salt)
 	}
 
 	if nw.nsec.iterations != 0 && nw.nsec.iterations != iterations {
-		return fmt.Errorf("NSEC3 iterations changed from %d to %d\n", nw.nsec.iterations, iterations)
+		return fmt.Errorf("NSEC3 iterations changed from %d to %d", nw.nsec.iterations, iterations)
 	}
 
 	nw.nsec.salt = salt
@@ -232,16 +242,12 @@ func (nw *NSec3Walker) workerForAuthNs(ns string) {
 			continue
 		}
 	}
-
-	return
 }
 
 func (nw *NSec3Walker) logVerbose(text string) {
-	if !nw.config.Verbose {
-		return
+	if nw.config.Verbose {
+		log.Println(text)
 	}
-
-	log.Println(text)
 }
 
 func (nw *NSec3Walker) isDomainInRange(domain string) (inRange bool) {
@@ -252,10 +258,12 @@ func (nw *NSec3Walker) isDomainInRange(domain string) (inRange bool) {
 	}
 
 	inRange, where := nw.ranges.isHashInRange(hash)
-
 	if inRange {
 		nw.logVerbose(fmt.Sprintf("Domain <%s> [%s] is in range [%s]", domain, hash, where))
 	}
+	// if !inRange {
+	// 	nw.logVerbose(fmt.Sprintf("Domain <%s> [%s] not in a range", domain, hash))
+	// }
 
 	return
 }
