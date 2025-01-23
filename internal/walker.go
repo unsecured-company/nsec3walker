@@ -13,8 +13,10 @@ import (
 )
 
 const (
-	DomainGeneratorMaxLength = 20
-	WaitMs                   = 100
+	DomainGeneratorCntMultiplier = 3
+	DomainGeneratorMaxLength     = 20
+	WaitMs                       = 100
+	sizeChanDomainStr            = 100
 )
 
 type NSec3Walker struct {
@@ -41,7 +43,6 @@ type Nsec3Record struct {
 func NewNSec3Walker(config Config) (nsecWalker *NSec3Walker) {
 	nsecWalker = &NSec3Walker{
 		config:          config,
-		chanDomains:     make(chan string, 1000),
 		chanHashesFound: make(chan Nsec3Record, 1000),
 		ranges:          NewRangeIndex(),
 	}
@@ -79,12 +80,19 @@ func (nw *NSec3Walker) RunDebug(domain string) (err error) {
 func (nw *NSec3Walker) Run() (err error) {
 	log.Printf("Starting NSEC3 walker for domain [%s]\n", nw.nsec.domain)
 	log.Println("NS servers to walk: ", nw.config.DomainDnsServers)
+
 	err = nw.initNsec3Values()
+
 	if err != nil {
 		return
 	}
 
-	go nw.domainGenerator()
+	cntDomainGen := len(nw.config.DomainDnsServers) * DomainGeneratorCntMultiplier
+	nw.chanDomains = make(chan string, cntDomainGen)
+
+	for i := 0; i < cntDomainGen; i++ {
+		go nw.domainGenerator()
+	}
 
 	for _, ns := range nw.config.DomainDnsServers {
 		go nw.workerForAuthNs(ns)
@@ -92,38 +100,46 @@ func (nw *NSec3Walker) Run() (err error) {
 
 	go nw.stats.logCounterChanges(time.Second*time.Duration(nw.config.LogCounterIntervalSec), nw.config.QuitAfterMin)
 
+	err = nw.processHashes()
+
+	return
+}
+
+func (nw *NSec3Walker) processHashes() (err error) {
 	var startExists, endExists bool
+
 	for hash := range nw.chanHashesFound {
 		startExists, endExists, err = nw.ranges.Add(hash.Start, hash.End)
 
 		if err != nil {
 			if nw.config.StopOnChange {
-				return err
-			}
-
-			log.Println(err)
-		}
-		if nw.ranges.cntChainsEmpty.Load() == 0 {
-			if nw.ranges.index.allRangesComplete() {
-				if nw.config.Verbose {
-					nw.ranges.Print()
-				}
-				log.Println("All hashes found")
 				return
 			}
+
+			// If the zone changes, and we don't quit, we can't determine if the chain is complete,
+			// so will need to rely on the timeout
+			log.Println(err)
 		}
 
-		if startExists {
-			continue
+		if !startExists {
+			fmt.Printf("%s:.%s:%s:%d\n", hash.Start, nw.nsec.domain, nw.nsec.salt, nw.nsec.iterations)
 		}
-
-		fmt.Printf("%s:.%s:%s:%d\n", hash.Start, nw.nsec.domain, nw.nsec.salt, nw.nsec.iterations)
 
 		if !endExists {
 			fmt.Printf("%s:.%s:%s:%d\n", hash.End, nw.nsec.domain, nw.nsec.salt, nw.nsec.iterations)
 		}
 
-		nw.stats.gotHash(nw.ranges.cntChains.Load())
+		nw.stats.gotHash(nw.ranges.cntChains.Load(), nw.ranges.cntChainsEmpty.Load())
+
+		if nw.ranges.isFinished() {
+			if nw.config.Verbose {
+				nw.ranges.PrintAll()
+			}
+
+			log.Printf("Finished with %d hashes\n", nw.stats.hashes.Load())
+
+			return
+		}
 	}
 
 	return
@@ -142,7 +158,7 @@ func (nw *NSec3Walker) initNsec3Values() (err error) {
 	return fmt.Errorf("could not get NSEC3 values from any of the DNS servers")
 }
 
-func (nw *NSec3Walker) domainGenerator() {
+func (nw *NSec3Walker) domainStringGenerator(chanDomains chan string) {
 	chars := []rune("abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz0123456789")
 	chLen := len(chars)
 
@@ -154,11 +170,24 @@ func (nw *NSec3Walker) domainGenerator() {
 
 		for i := 0; i < DomainGeneratorMaxLength-2; i++ {
 			result = append(result, chars[rand.Intn(chLen)])
-
 			domain := string(result) + "." + nw.nsec.domain
 
-			nw.chanDomains <- domain
+			chanDomains <- domain
 		}
+	}
+}
+
+func (nw *NSec3Walker) domainGenerator() {
+	chanDomainStr := make(chan string, sizeChanDomainStr)
+
+	go nw.domainStringGenerator(chanDomainStr)
+
+	for domain := range chanDomainStr {
+		if nw.isDomainInRange(domain) {
+			continue
+		}
+
+		nw.chanDomains <- domain
 	}
 }
 
@@ -172,16 +201,21 @@ func (nw *NSec3Walker) extractNSEC3Hashes(domain string, authNsServer string) (e
 		if nsec, ok := rr.(*dns.NSEC); ok {
 			if strings.HasPrefix(nsec.NextDomain, "\\000") {
 				log.Printf("Black lies detected on %s, skipping this name server\n", authNsServer)
+
 				return errors.New("black lies")
 			}
 		}
+
 		if nsec3, ok := rr.(*dns.NSEC3); ok {
 			err = nw.setNsec3Values(nsec3.Salt, nsec3.Iterations)
 
 			if err != nil {
 				log.Println(err)
-				os.Exit(1)
+
 				// salt or iterations changed, we need to start over
+				if nw.config.StopOnChange {
+					os.Exit(1)
+				}
 			}
 
 			hashStart := strings.ToLower(strings.Split(nsec3.Header().Name, ".")[0])
@@ -218,12 +252,6 @@ func (nw *NSec3Walker) setNsec3Values(salt string, iterations uint16) (err error
 
 func (nw *NSec3Walker) workerForAuthNs(ns string) {
 	for domain := range nw.chanDomains {
-		isInRange := nw.isDomainInRange(domain)
-
-		if isInRange {
-			continue
-		}
-
 		time.Sleep(time.Millisecond * WaitMs)
 
 		err := nw.extractNSEC3Hashes(domain, ns)
@@ -258,12 +286,10 @@ func (nw *NSec3Walker) isDomainInRange(domain string) (inRange bool) {
 	}
 
 	inRange, where := nw.ranges.isHashInRange(hash)
+
 	if inRange {
-		nw.logVerbose(fmt.Sprintf("Domain <%s> [%s] is in range [%s]", domain, hash, where))
+		nw.logVerbose(fmt.Sprintf("Domain in range [%s] <= %s (%s)", where, hash, domain))
 	}
-	// if !inRange {
-	// 	nw.logVerbose(fmt.Sprintf("Domain <%s> [%s] not in a range", domain, hash))
-	// }
 
 	return
 }

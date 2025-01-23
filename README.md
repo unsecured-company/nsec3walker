@@ -2,7 +2,6 @@
 
 A DNS zone hash collection tool that implements NSEC3 walking.
 This tool retrieves DNS zone hashes which can later be cracked to discover existing (sub)domains.
-The walker continues running until no new hashes are found for a specified duration (configurable via `--quit-after`).
 Written in Go, working on Windows, MacOS, and Linux.
 
 ## Install

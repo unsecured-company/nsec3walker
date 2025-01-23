@@ -47,7 +47,7 @@ func (ht *HashTree) GetLastRange() (key, val string) {
 	return
 }
 
-func (ht *HashTree) Print() {
+func (ht *HashTree) PrintAll() {
 	ht.mutex.RLock()
 	defer ht.mutex.RUnlock()
 	iterator := ht.tree.Iterator()
@@ -114,9 +114,8 @@ func NewRangeIndex() (rangeIndex *RangeIndex) {
 	return
 }
 
-// Prints all known ranges
-func (ri *RangeIndex) Print() {
-	ri.index.Print()
+func (ri *RangeIndex) PrintAll() {
+	ri.index.PrintAll()
 }
 
 func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, existsEnd bool, err error) {
@@ -159,6 +158,7 @@ func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, e
 		ri.index.Add(hashEnd, "")
 	}
 	ri.addMutex.Unlock()
+
 	return
 }
 
@@ -168,6 +168,7 @@ func (ri *RangeIndex) isHashInRange(hash string) (inRange bool, exactRange strin
 	lastHash, lastVal := ri.index.GetLastRange()
 	if lastVal != "" && lastVal < lastHash && (hash < lastVal || hash > lastHash) {
 		exactRange = lastHash + "=" + lastVal
+
 		return true, exactRange
 	}
 
@@ -175,7 +176,18 @@ func (ri *RangeIndex) isHashInRange(hash string) (inRange bool, exactRange strin
 	if hasClosest {
 		if hash <= closestEnd {
 			exactRange = closestStart + "=" + closestEnd
+
 			return true, exactRange
+		}
+	}
+
+	return
+}
+
+func (ri *RangeIndex) isFinished() (isFinished bool) {
+	if ri.cntChainsEmpty.Load() == 0 {
+		if ri.index.allRangesComplete() {
+			isFinished = true
 		}
 	}
 
