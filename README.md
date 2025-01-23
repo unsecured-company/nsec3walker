@@ -6,10 +6,6 @@ Written in Go, working on Windows, MacOS, and Linux.
 
 ## Install
 
-```shell
-go install github.com/vitezslav-lindovsky/nsec3walker@latest
-```
-
 The project includes a Makefile supporting Linux, MacOS, and Windows builds. The default target is `make all`.
 
 Available make targets:
