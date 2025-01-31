@@ -1,6 +1,7 @@
 package nsec3walker
 
 import (
+	"fmt"
 	"github.com/spf13/cobra"
 	"os"
 	"path/filepath"
@@ -9,7 +10,7 @@ import (
 const (
 	GenericServers        = "8.8.8.8:53,1.1.1.1:53,9.9.9.9:53"
 	LogCounterIntervalSec = 30
-	QuitAfterMin          = 2
+	QuitAfterMin          = 15
 )
 
 type Config struct {
@@ -26,7 +27,8 @@ type Config struct {
 
 func NewConfig() (config Config, err error) {
 	long := "A tool for traversing NSEC3 DNS hashes for a specified domain using its authoritative NS servers.\n"
-	long += "It will run until no hashes are received for X (default 2) minutes.\nSTDOUT - hashes\nSTDERR - logging\n"
+	long += "It will run until no hashes are received for X (default %d) minutes.\nSTDOUT - hashes\nSTDERR - logging\n"
+	long = fmt.Sprintf(long, QuitAfterMin)
 
 	var rootCmd = &cobra.Command{
 		Use:           filepath.Base(os.Args[0]) + " [flags] domain",
