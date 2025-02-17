@@ -87,6 +87,8 @@ func (nw *NSec3Walker) Run() (err error) {
 		return
 	}
 
+	log.Printf("NSEC3 uses salt [%s] and [%d] iterations\n", nw.nsec.salt, nw.nsec.iterations)
+
 	cntDomainGen := len(nw.config.DomainDnsServers) * DomainGeneratorCntMultiplier
 	nw.chanDomains = make(chan string, cntDomainGen)
 
@@ -146,16 +148,36 @@ func (nw *NSec3Walker) processHashes() (err error) {
 }
 
 func (nw *NSec3Walker) initNsec3Values() (err error) {
-	for _, ns := range nw.config.DomainDnsServers {
-		randomDomain := fmt.Sprintf("%d-%d.%s", time.Now().UnixMilli(), rand.Uint32(), nw.nsec.domain)
-		err = nw.extractNSEC3Hashes(randomDomain, ns)
+	var hasNsec3Param bool
 
-		if err == nil {
-			return
+	for _, ns := range nw.config.DomainDnsServers {
+		nsec3param, err := getNsec3ParamResponse(nw.nsec.domain, ns)
+
+		if err != nil {
+			log.Println(err)
+			continue
+		} else if nsec3param == nil {
+			log.Printf("No NSEC3PARAM for [%s] from server [%s]\n", nw.nsec.domain, ns)
+			continue
+		}
+
+		if nsec3param.Hash != dns.SHA1 {
+			return fmt.Errorf("NSEC3 hash is not SHA1")
+		}
+
+		err = nw.setNsec3Values(nsec3param.Salt, nsec3param.Iterations)
+		hasNsec3Param = true
+
+		if err != nil {
+			return err
 		}
 	}
 
-	return fmt.Errorf("could not get NSEC3 values from any of the DNS servers")
+	if !hasNsec3Param {
+		err = fmt.Errorf("Domain [%s] is not supporting NSEC3", nw.nsec.domain)
+	}
+
+	return
 }
 
 func (nw *NSec3Walker) domainStringGenerator(chanDomains chan string) {

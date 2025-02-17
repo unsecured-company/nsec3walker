@@ -114,9 +114,27 @@ func parseDnsServers(serversStr string) (servers []string) {
 }
 
 func getNsResponse(domain string, authNsServer string) (r *dns.Msg, err error) {
+	return getDnsResponse(domain, authNsServer, dns.TypeNS)
+}
+
+func getNsec3ParamResponse(domain string, authNsServer string) (r *dns.NSEC3PARAM, err error) {
+	rr, err := getDnsResponse(domain, authNsServer, dns.TypeNSEC3PARAM)
+
+	if err != nil || len(rr.Answer) == 0 {
+		return
+	}
+
+	if nsec3param, ok := rr.Answer[0].(*dns.NSEC3PARAM); ok {
+		return nsec3param, nil
+	}
+
+	return
+}
+
+func getDnsResponse(domain string, authNsServer string, dnsType uint16) (r *dns.Msg, err error) {
 	c := dns.Client{}
 	m := dns.Msg{}
-	m.SetQuestion(dns.Fqdn(domain), dns.TypeNS)
+	m.SetQuestion(dns.Fqdn(domain), dnsType)
 	m.SetEdns0(4096, true)
 	c.DialTimeout = time.Second * 5
 	c.ReadTimeout = time.Second * 10
