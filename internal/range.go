@@ -117,7 +117,7 @@ func (ri *RangeIndex) PrintAll() {
 	ri.index.PrintAll()
 }
 
-func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, existsEnd bool, err error) {
+func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, existsEnd bool, setFull bool, err error) {
 	/**
 	If hashStart key already exists, check the value didn't change (hashEnd)
 	If hashEnd does not exists, add it with empty value
@@ -144,7 +144,7 @@ func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, e
 
 	// existsStartWithEmptyEnd = start exists and end is empty, from being End before
 	existsStartWithEmptyEnd := existsStart && existingStartValAsStart == ""
-	setFull := !existsStart || existsStartWithEmptyEnd
+	setFull = !existsStart || existsStartWithEmptyEnd
 
 	if existsStartWithEmptyEnd {
 		ri.cntEndWithoutStart.Add(-1)
