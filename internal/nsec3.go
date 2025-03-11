@@ -6,52 +6,11 @@ import (
 	"encoding/hex"
 	"fmt"
 	"github.com/miekg/dns"
-	"log"
 	"strings"
 	"time"
 )
 
 const DnsPort = "53"
-
-func getAuthNsServers(domain string, genericDnsServers []string) (nsAuthServers []string, err error) {
-	topCount := 0
-	counter := map[string]int{}
-	nsResults := map[string][]string{}
-
-	for _, server := range genericDnsServers {
-		nss, err := getNameServersFromDnsServer(domain, server)
-
-		if err != nil {
-			if errNoConnection(err) {
-				log.Printf("No route to %s\n", server)
-
-				continue
-			}
-
-			log.Printf("Error getting NS servers from %s: %v\n", server, err)
-
-			continue
-		}
-
-		nsResults[server] = nss
-		counter[server] = len(nss)
-
-		if len(nss) > topCount {
-			topCount = len(nss)
-			nsAuthServers = nss
-		}
-	}
-
-	// will use later
-	_ = nsResults
-	_ = counter
-
-	if len(nsAuthServers) == 0 {
-		err = fmt.Errorf("no NS servers found for domain %s", domain)
-	}
-
-	return
-}
 
 func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
 	m := new(dns.Msg)
@@ -72,7 +31,7 @@ func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
 
 	for _, ans := range in.Answer {
 		if ns, ok := ans.(*dns.NS); ok {
-			nsStr := parseDnsServers(ns.Ns)[0]
+			nsStr := ParseDnsServerValue(ns.Ns)
 			nsStr = strings.ToLower(nsStr)
 
 			nameservers = append(nameservers, nsStr)
@@ -82,35 +41,21 @@ func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
 	return nameservers, nil
 }
 
+func ParseDnsServerValue(value string) (server string) {
+	server = strings.TrimSpace(value)
+	server = strings.Trim(server, ".")
+
+	if server != "" && !strings.Contains(server, ":") {
+		server = server + ":" + DnsPort
+	}
+
+	return
+}
+
 func errNoConnection(err error) bool {
 	msg := err.Error()
 
 	return strings.Contains(msg, "no route to host") || strings.Contains(msg, "i/o timeout")
-}
-
-func parseDnsServers(serversStr string) (servers []string) {
-	if serversStr == "" {
-		return
-	}
-
-	serversItems := strings.Split(serversStr, ",")
-
-	for _, server := range serversItems {
-		server = strings.TrimSpace(server)
-		server = strings.Trim(server, ".")
-
-		if server == "" {
-			continue
-		}
-
-		if !strings.Contains(server, ":") {
-			server = server + ":" + DnsPort
-		}
-
-		servers = append(servers, server)
-	}
-
-	return
 }
 
 func getNsResponse(domain string, authNsServer string) (r *dns.Msg, err error) {
@@ -118,17 +63,28 @@ func getNsResponse(domain string, authNsServer string) (r *dns.Msg, err error) {
 }
 
 func getNsec3ParamResponse(domain string, authNsServer string) (r *dns.NSEC3PARAM, err error) {
+	errNotExists := fmt.Errorf("NSEC3PARAM are not existing")
 	rr, err := getDnsResponse(domain, authNsServer, dns.TypeNSEC3PARAM)
 
-	if err != nil || len(rr.Answer) == 0 {
+	if err != nil {
 		return
 	}
 
-	if nsec3param, ok := rr.Answer[0].(*dns.NSEC3PARAM); ok {
-		return nsec3param, nil
+	if len(rr.Answer) == 0 {
+		return nil, errNotExists
 	}
 
-	return
+	nsec3param, ok := rr.Answer[0].(*dns.NSEC3PARAM)
+
+	if !ok {
+		return nil, errNotExists
+	}
+
+	if nsec3param.Hash != dns.SHA1 {
+		return nil, fmt.Errorf("NSEC3 hash is not SHA1")
+	}
+
+	return nsec3param, nil
 }
 
 func getDnsResponse(domain string, authNsServer string, dnsType uint16) (r *dns.Msg, err error) {
