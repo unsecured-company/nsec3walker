@@ -47,3 +47,12 @@ The following example demonstrates cracking domains up to 10 characters long:
 ```shell
 hashcat -m 8300 -a 3 --increment --custom-charset1 "?l?d-" cz.hash "?1?1?1?1?1?1?1?1?1?1"
 ```
+
+## Support
+If you find NSEC3 Walker useful, feel free to support my work.  
+
+BTC `bc1qv79sm8zp70jsqa4dpweqeg9g2lpyplfszhqzyl`  
+
+ETH `0x7A0ac7852258578cc57635206959C848A53413a4`  
+
+SOL `C7YKx3AUaqFGA5QafhTy7vQZVtUqiJAUP9N9nzkV2oA9`
