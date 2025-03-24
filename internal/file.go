@@ -85,12 +85,12 @@ func GetOutputFilePrefix(path string, domain string) (absPath string, err error)
 		return filepath.Join(absPath, createFilePrefix(domain)), nil
 	}
 
-	return absPath, nil
+	return
 }
 
 func getAbsolutePath(path string) (absPath string, err error) {
-	absPath = filepath.Clean(absPath)
-	absPath, err = filepath.Abs(path)
+	absPath = filepath.Clean(path)
+	absPath, err = filepath.Abs(absPath)
 	_, err = os.Stat(absPath)
 
 	if os.IsNotExist(err) {
