@@ -1,13 +1,18 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os"
 
 	"github.com/unsecured-company/nsec3walker/internal"
 )
 
+const Version = "2.0.3-250628"
+
 func main() {
+	_, _ = fmt.Fprintln(os.Stderr, "nsec3walker "+Version+" | https://unsecured.company")
+
 	var err error
 	config := initConfig()
 	nw := nsec3walker.NewNSec3Walker(config)
