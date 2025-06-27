@@ -6,7 +6,7 @@ A tool for collecting NSEC3 hashes from DNS zones, enabling discovery of (sub)do
 
 To install into your `$GOPATH/bin` directory as `nsec3walker`.
 ```
-go install cmd/nsec3walker.go
+go install .
 ```
 The project includes a Makefile supporting Linux, MacOS, and Windows builds. The default target is `make all`.
 
@@ -24,6 +24,9 @@ nsec3walker walk --domain cz -o cz # output to cz.csv cz.log cz.hash
 
 #get subdomains
 nsec3walker walk --domain seznam.cz -o seznam_cz
+
+#output to a specific directory (directories will be created if they don't exist)
+nsec3walker walk --domain example.com -o /data/dns/scans/example_com
 ```
 
 ## Command Line Options

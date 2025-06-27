@@ -73,11 +73,11 @@ func NewConfig() (config *Config, err error) {
 		Output: NewOutput(),
 	}
 
-	long := "A tool for traversing NSEC3 DNS hashes for a specified domain."
+	long := "Tool for traversing NSEC3 enabled DNS zone"
 
 	rootCmd := &cobra.Command{
 		Use:   filepath.Base(os.Args[0]) + " [command] [flags]",
-		Short: "NSEC3 Walker - Discover and traverse NSEC3 DNS hashes",
+		Short: "Tool for traversing NSEC3 enabled DNS zone",
 		Long:  long,
 		Run: func(cmd *cobra.Command, args []string) {
 			config.help = true

@@ -79,10 +79,17 @@ func (f *File) Close() error {
 
 func GetOutputFilePrefix(path string, domain string) (absPath string, err error) {
 	absPath, err = getAbsolutePath(path)
-	info, err := os.Stat(absPath)
+	if err != nil {
+		return "", err
+	}
 
+	info, err := os.Stat(absPath)
 	if err == nil && info.IsDir() {
 		return filepath.Join(absPath, createFilePrefix(domain)), nil
+	}
+
+	if err != nil && os.IsNotExist(err) {
+		return absPath, nil
 	}
 
 	return
@@ -91,14 +98,17 @@ func GetOutputFilePrefix(path string, domain string) (absPath string, err error)
 func getAbsolutePath(path string) (absPath string, err error) {
 	absPath = filepath.Clean(path)
 	absPath, err = filepath.Abs(absPath)
-	_, err = os.Stat(absPath)
+	if err != nil {
+		return "", err
+	}
 
+	_, err = os.Stat(absPath)
 	if os.IsNotExist(err) {
 		dir := filepath.Dir(absPath)
-		_, err = os.Stat(dir)
+		err = os.MkdirAll(dir, PermDir)
 
 		if err != nil {
-			err = os.MkdirAll(dir, PermDir)
+			return "", err
 		}
 	}
 
