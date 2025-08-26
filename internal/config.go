@@ -2,16 +2,18 @@ package nsec3walker
 
 import (
 	"fmt"
-	"github.com/spf13/cobra"
-	"golang.org/x/net/publicsuffix"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/spf13/cobra"
+	"golang.org/x/net/publicsuffix"
 )
 
 const (
 	ActionDebug           = "debug"
 	ActionDumpDomains     = "dump-domains"
+	ActionDumpWordlist    = "dump-wordlist"
 	ActionHelp            = "help"
 	ActionUpdateCsv       = "update-csv"
 	ActionWalk            = "walk"
@@ -19,6 +21,7 @@ const (
 	CsvSeparator          = ","
 	FlagDomain            = "domain"
 	FlagDumpDomains       = ActionDumpDomains
+	FlagDumpWordlist      = ActionDumpWordlist
 	FlagFileCsv           = "file-csv"
 	FlagFileHashcat       = "file-hashcat"
 	FlagNameServers       = "nameservers"
@@ -61,6 +64,7 @@ type Config struct {
 	debugDomain        string
 	domainServerInput  string
 	dumpDomains        bool
+	dumpWordlist       bool
 	filePathPrefix     string
 	genericDnsServers  []string
 	genericServerInput string
@@ -199,22 +203,25 @@ func NewFileCommand(config *Config) *cobra.Command {
 		SilenceErrors: true,
 		Run:           func(cmd *cobra.Command, args []string) {},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
-			if config.updateCsv && config.dumpDomains {
-				return fmt.Errorf("Specify only one of --%s or --%s", FlagUpdateCsv, FlagDumpDomains)
+			options := fmt.Sprintf("--%s , --%s or --%s", FlagUpdateCsv, FlagDumpDomains, FlagDumpWordlist)
+			if moreThanOne(config.updateCsv, config.dumpDomains, config.dumpWordlist) {
+				return fmt.Errorf("Specify only one of %s", options)
+			}
+
+			if config.FileCsv == "" && config.FileHashcat == "" {
+				return fmt.Errorf("Specify --%s or --%s", FlagFileCsv, FlagFileHashcat)
 			}
 
 			if config.updateCsv {
 				config.Action = ActionUpdateCsv
-				if config.FileCsv == "" || config.FileHashcat == "" {
-					return fmt.Errorf("Specify --%s and --%s", FlagFileCsv, FlagFileHashcat)
-				}
-			} else if config.dumpDomains {
-				config.Action = ActionDumpDomains
-				if config.FileCsv == "" && config.FileHashcat == "" {
-					return fmt.Errorf("Specify --%s or --%s", FlagFileCsv, FlagFileHashcat)
+			} else if config.dumpDomains || config.dumpWordlist {
+				if config.dumpDomains {
+					config.Action = ActionDumpDomains
+				} else {
+					config.Action = ActionDumpWordlist
 				}
 			} else {
-				return fmt.Errorf("Specify --%s or --%s", FlagUpdateCsv, FlagDumpDomains)
+				return fmt.Errorf("Specify %s ", options)
 			}
 
 			return nil
@@ -222,6 +229,7 @@ func NewFileCommand(config *Config) *cobra.Command {
 	}
 
 	updateCsvCmd.Flags().BoolVar(&config.dumpDomains, FlagDumpDomains, false, "Dump plaintext domains from files (CSV, Hashcat)")
+	updateCsvCmd.Flags().BoolVar(&config.dumpWordlist, FlagDumpWordlist, false, "Extract domain parts for cracking wordlists from files (CSV, Hashcat)")
 	updateCsvCmd.Flags().BoolVar(&config.updateCsv, FlagUpdateCsv, false, "Update CSV file with plaintext domains from Hashcat")
 	updateCsvCmd.Flags().StringVar(&config.FileHashcat, FlagFileHashcat, "", "A Hashcat .potfile file containing cracked hashes")
 	updateCsvCmd.Flags().StringVar(&config.FileCsv, FlagFileCsv, "", "A nsec3walker .csv file")
@@ -322,4 +330,16 @@ func ValueMustBePositive(value int, name string) (err error) {
 	}
 	/* I could use `uint`, but I don't like that word in help output. :) */
 	return
+}
+
+func moreThanOne(values ...bool) bool {
+	cnt := 0
+
+	for _, v := range values {
+		if v {
+			cnt++
+		}
+	}
+
+	return cnt > 1
 }

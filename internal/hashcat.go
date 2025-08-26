@@ -44,14 +44,26 @@ func NewHashCat(potFilePath string, cnf *Config) (hashCat *HashCat, err error) {
 	return
 }
 
-func (h *HashCat) PrintPlaintext() (err error) {
-	for _, hashes := range h.Domains {
+func (h *HashCat) PrintPlaintextFull() {
+	h.printPlaintext(true)
+}
+
+func (h *HashCat) PrintPlaintextWordlist() {
+	h.printPlaintext(false)
+}
+
+func (h *HashCat) printPlaintext(full bool) {
+	for key, hashes := range h.Domains {
+		domain := strings.Split(key, "|")[0]
+
 		for _, plaintext := range hashes {
-			fmt.Println(plaintext)
+			if full {
+				fmt.Println(plaintext)
+			} else {
+				fmt.Println(strings.TrimSuffix(plaintext, "."+domain))
+			}
 		}
 	}
-
-	return
 }
 
 func (h *HashCat) load() (err error) {

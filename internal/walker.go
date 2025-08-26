@@ -143,17 +143,11 @@ func (nw *NSec3Walker) RunCsvUpdate() (err error) {
 	return
 }
 
-func (nw *NSec3Walker) RunDumpDomains() (err error) {
-	dump, err := NewDumpDomains(nw.config)
+func (nw *NSec3Walker) RunDump() (err error) {
+	dump, err := NewDump(nw.config)
 
-	if err != nil {
-		return
-	}
-
-	err = dump.Run()
-
-	if err != nil {
-		return
+	if err == nil {
+		err = dump.Run()
 	}
 
 	return

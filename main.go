@@ -28,7 +28,9 @@ func main() {
 	case nsec3walker.ActionUpdateCsv:
 		err = nw.RunCsvUpdate()
 	case nsec3walker.ActionDumpDomains:
-		err = nw.RunDumpDomains()
+		err = nw.RunDump()
+	case nsec3walker.ActionDumpWordlist:
+		err = nw.RunDump()
 	}
 
 	if err != nil {

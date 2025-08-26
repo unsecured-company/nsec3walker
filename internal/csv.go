@@ -81,7 +81,7 @@ func NewCsv(csvFilePath string, out *Output) (csv *Csv, err error) {
 		return
 	}
 
-	msg := "Csv file has %d valid lines"
+	msg := "csv file has %d valid lines"
 
 	if cntInvalid > 0 {
 		err = fmt.Errorf(msg+" and %d invalid. Fix them before continuing.", cntValid, cntInvalid)
