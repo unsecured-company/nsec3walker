@@ -8,7 +8,7 @@ import (
 	"github.com/unsecured-company/nsec3walker/internal"
 )
 
-const Version = "2.0.3-250628"
+const Version = "2.0.5-250901"
 
 func main() {
 	_, _ = fmt.Fprintln(os.Stderr, "nsec3walker "+Version+" | https://unsecured.company")

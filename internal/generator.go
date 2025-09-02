@@ -1,6 +1,7 @@
 package nsec3walker
 
 import (
+	"encoding/hex"
 	"fmt"
 	"hash/crc32"
 	"os"
@@ -19,7 +20,7 @@ type DomainGenerator struct {
 	ranges      *RangeIndex
 	out         *Output
 	nsec3Domain string
-	nsec3Salt   string
+	nsec3Salt   []byte
 	nsec3Iter   uint16
 	counter     []int8
 	chars       []rune
@@ -37,18 +38,24 @@ func NewDomainGenerator(
 	nsec3Iter uint16,
 	ranges *RangeIndex,
 	output *Output,
-) *DomainGenerator {
-	return &DomainGenerator{
+) (dg *DomainGenerator, err error) {
+	dg = &DomainGenerator{
 		chanDomain:  make(chan *Domain, cntChanDomain),
 		ranges:      ranges,
 		out:         output,
 		nsec3Domain: nsec3Domain,
-		nsec3Salt:   nsec3Salt,
 		nsec3Iter:   nsec3Iter,
 		counter:     []int8{0, 0, 0, 0}, // "aaaa"
 		chars:       []rune(charset),
 		len:         int8(len(charset)),
 	}
+
+	dg.nsec3Salt, err = hex.DecodeString(nsec3Salt)
+	if err != nil {
+		err = fmt.Errorf("invalid NSEC3 saltString format: %w", err)
+	}
+
+	return
 }
 
 func (dg *DomainGenerator) Run(chanOut chan *Domain) {

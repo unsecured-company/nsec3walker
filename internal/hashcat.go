@@ -60,7 +60,9 @@ func (h *HashCat) printPlaintext(full bool) {
 			if full {
 				fmt.Println(plaintext)
 			} else {
-				fmt.Println(strings.TrimSuffix(plaintext, "."+domain))
+				if plaintext != domain { // for "empty" sub-domains it is the same as "domain"
+					fmt.Println(strings.TrimSuffix(plaintext, "."+domain))
+				}
 			}
 		}
 	}
@@ -75,13 +77,13 @@ func (h *HashCat) load() (err error) {
 		parts := strings.Split(line, ":")
 
 		//c17odk0qjlecpl8eldnctr21vpck06bq:.cz:cb6658404d098de6:0:abtest
-		// 0 hash | 1 domain | 2 salt | 3 iterations | 4 plaintext
+		// 0 hash | 1 domain | 2 saltString | 3 iterations | 4 plaintext
 		if len(parts) != CntHashcatPotParts || !re.MatchString(parts[0]) {
 			h.cnf.Output.LogVerbose("Invalid line: " + line)
 			continue
 		}
 
-		domain := parts[4] + parts[1]
+		domain := strings.TrimLeft(parts[4]+parts[1], ".")
 		key := getHashcatMapKey(parts[1], parts[2], parts[3])
 		hash := parts[0]
 
@@ -113,7 +115,7 @@ func (h *HashCat) printVerboseCounts() {
 }
 
 func getHashcatMapKey(domain string, salt string, iterations interface{}) string {
-	domain = strings.Trim(domain, ".")
+	domain = strings.TrimLeft(domain, ".")
 
 	return fmt.Sprintf("%s|%s|%v", domain, salt, iterations)
 }

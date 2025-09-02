@@ -77,8 +77,7 @@ func (d *Dump) dumpHashCat() {
 }
 
 func (d *Dump) csvToChan(chanCsvItem chan CsvItem) {
-	err := d.csv.ReadToChan(chanCsvItem)
-	close(chanCsvItem)
+	err := d.csv.ReadToChan(chanCsvItem, true)
 
 	if err != nil {
 		d.cnf.Output.Log(err.Error())

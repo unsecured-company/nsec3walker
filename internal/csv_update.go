@@ -64,8 +64,7 @@ func (cu *CsvUpdate) Run() (err error) {
 }
 
 func (cu *CsvUpdate) csvToChan(chanCsvItem chan CsvItem) {
-	err := cu.Csv.ReadToChan(chanCsvItem)
-	close(chanCsvItem)
+	err := cu.Csv.ReadToChan(chanCsvItem, true)
 
 	if err != nil {
 		cu.cnf.Output.Log(err.Error())

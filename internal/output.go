@@ -73,7 +73,7 @@ func (fi *OutputFiles) Close() {
 }
 
 func (o *Output) Hash(hash string, nsec Nsec3Params) {
-	msg := fmt.Sprintf("%s:.%s:%s:%d\n", hash, nsec.domain, nsec.salt, nsec.iterations)
+	msg := fmt.Sprintf("%s:.%s:%s:%d\n", hash, nsec.domain, nsec.saltString, nsec.iterations)
 
 	if !o.isFileOutput() {
 		fmt.Print(msg)
@@ -130,7 +130,7 @@ func (o *Output) Csv(hash Nsec3Record, nsec Nsec3Params) {
 		Hash:       hash.Start,
 		HashNext:   hash.End,
 		Domain:     nsec.domain,
-		Salt:       nsec.salt,
+		Salt:       nsec.saltString,
 		Iterations: int(nsec.iterations),
 		Plaintext:  "",
 		Types:      types,

@@ -94,7 +94,7 @@ func NewCsv(csvFilePath string, out *Output) (csv *Csv, err error) {
 	return
 }
 
-func (c *Csv) ReadToChan(chanCsvItem chan CsvItem) (err error) {
+func (c *Csv) ReadToChan(chanCsvItem chan CsvItem, closeChan bool) (err error) {
 	_, err = c.FileInput.Resource.Seek(0, io.SeekStart)
 
 	if err != nil {
@@ -111,6 +111,10 @@ func (c *Csv) ReadToChan(chanCsvItem chan CsvItem) (err error) {
 		}
 
 		chanCsvItem <- c.csvLineToStruct(line)
+	}
+
+	if closeChan {
+		close(chanCsvItem)
 	}
 
 	err = scanner.Err()

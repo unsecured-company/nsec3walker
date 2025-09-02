@@ -79,7 +79,7 @@ func NewConfig() (config *Config, err error) {
 
 	long := "Tool for traversing NSEC3 enabled DNS zone"
 
-	rootCmd := &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   filepath.Base(os.Args[0]) + " [command] [flags]",
 		Short: "Tool for traversing NSEC3 enabled DNS zone",
 		Long:  long,
@@ -92,13 +92,13 @@ func NewConfig() (config *Config, err error) {
 		},
 	}
 
-	rootCmd.AddCommand(
-		NewDebugCommand(config),
-		NewWalkCommand(config),
-		NewFileCommand(config),
+	cmd.AddCommand(
+		cmdWalk(config),
+		cmdFile(config),
+		cmdDebug(config),
 	)
 
-	err = rootCmd.Execute()
+	err = cmd.Execute()
 
 	if err != nil {
 		return config, err
@@ -141,8 +141,8 @@ func NewConfig() (config *Config, err error) {
 	return
 }
 
-func NewDebugCommand(config *Config) *cobra.Command {
-	var walkCmd = &cobra.Command{
+func cmdDebug(config *Config) *cobra.Command {
+	var cmd = &cobra.Command{
 		Use:   "debug [flags]",
 		Short: "Show debug information for a domain",
 		Long:  "Show debug information for a domain. Provide --domain.",
@@ -158,15 +158,14 @@ func NewDebugCommand(config *Config) *cobra.Command {
 		},
 	}
 
-	addCommonFlags(walkCmd, config)
-	addDomainFlags(walkCmd, config)
+	addCommonFlags(cmd, config)
+	addDomainFlags(cmd, config)
 
-	return walkCmd
+	return cmd
 }
 
-func NewWalkCommand(config *Config) *cobra.Command {
-
-	var walkCmd = &cobra.Command{
+func cmdWalk(config *Config) *cobra.Command {
+	var cmd = &cobra.Command{
 		Use:   "walk [flags]",
 		Short: "Walk zone for a domain",
 		Long:  "Walk zone for a domain. Provide --domain.",
@@ -182,21 +181,24 @@ func NewWalkCommand(config *Config) *cobra.Command {
 		},
 	}
 
-	walkCmd.Flags().IntVar(&config.LogCounterIntervalSec, FlagProgress, LogCounterIntervalSec, "Counters print interval in seconds")
-	walkCmd.Flags().IntVar(&config.QuitAfterMin, FlagQuitAfter, QuitAfterMin, "Quit after X minutes of no new hashes")
-	walkCmd.Flags().StringVarP(&config.filePathPrefix, "output", "o", "", "Path and prefix for output files. ../directory/prefix")
-	walkCmd.Flags().BoolVar(&config.QuitOnChange, "quit-on-change", false, "Quit if the zone changed")
-	walkCmd.Flags().IntVarP(&config.cntThreadsPerNs, FlagThreads, "t", CntThreadsPerNs, "[WIP] Threads per NS server")
-	addCommonFlags(walkCmd, config)
-	addDomainFlags(walkCmd, config)
+	msgInt := "Counters print interval in seconds"
+	msgPath := "Path and prefix for output files. ../directory/prefix"
 
-	_ = walkCmd.MarkFlagRequired(FlagDomain)
+	cmd.Flags().IntVar(&config.LogCounterIntervalSec, FlagProgress, LogCounterIntervalSec, msgInt)
+	cmd.Flags().IntVar(&config.QuitAfterMin, FlagQuitAfter, QuitAfterMin, "Quit after X minutes of no new hashes")
+	cmd.Flags().StringVarP(&config.filePathPrefix, "output", "o", "", msgPath)
+	cmd.Flags().BoolVar(&config.QuitOnChange, "quit-on-change", false, "Quit if the zone changed")
+	cmd.Flags().IntVarP(&config.cntThreadsPerNs, FlagThreads, "t", CntThreadsPerNs, "[WIP] Threads per NS server")
+	addCommonFlags(cmd, config)
+	addDomainFlags(cmd, config)
 
-	return walkCmd
+	_ = cmd.MarkFlagRequired(FlagDomain)
+
+	return cmd
 }
 
-func NewFileCommand(config *Config) *cobra.Command {
-	var updateCsvCmd = &cobra.Command{
+func cmdFile(config *Config) *cobra.Command {
+	var cmd = &cobra.Command{
 		Use:           "file [flags]",
 		Short:         "Process CSV & Hashcat files",
 		Long:          "Processing of files - dump plaintext domains, update CSV file.",
@@ -228,14 +230,14 @@ func NewFileCommand(config *Config) *cobra.Command {
 		},
 	}
 
-	updateCsvCmd.Flags().BoolVar(&config.dumpDomains, FlagDumpDomains, false, "Dump plaintext domains from files (CSV, Hashcat)")
-	updateCsvCmd.Flags().BoolVar(&config.dumpWordlist, FlagDumpWordlist, false, "Extract domain parts for cracking wordlists from files (CSV, Hashcat)")
-	updateCsvCmd.Flags().BoolVar(&config.updateCsv, FlagUpdateCsv, false, "Update CSV file with plaintext domains from Hashcat")
-	updateCsvCmd.Flags().StringVar(&config.FileHashcat, FlagFileHashcat, "", "A Hashcat .potfile file containing cracked hashes")
-	updateCsvCmd.Flags().StringVar(&config.FileCsv, FlagFileCsv, "", "A nsec3walker .csv file")
-	addCommonFlags(updateCsvCmd, config)
+	cmd.Flags().BoolVar(&config.dumpDomains, FlagDumpDomains, false, "Dump plaintext domains from files (CSV, Hashcat)")
+	cmd.Flags().BoolVar(&config.dumpWordlist, FlagDumpWordlist, false, "Extract domain parts for cracking wordlists from files (CSV, Hashcat)")
+	cmd.Flags().BoolVar(&config.updateCsv, FlagUpdateCsv, false, "Update CSV file with plaintext domains from Hashcat")
+	cmd.Flags().StringVar(&config.FileHashcat, FlagFileHashcat, "", "A Hashcat .potfile file containing cracked hashes")
+	cmd.Flags().StringVar(&config.FileCsv, FlagFileCsv, "", "A nsec3walker .csv file")
+	addCommonFlags(cmd, config)
 
-	return updateCsvCmd
+	return cmd
 }
 
 func addCommonFlags(cmd *cobra.Command, config *Config) {
@@ -243,10 +245,13 @@ func addCommonFlags(cmd *cobra.Command, config *Config) {
 }
 
 func addDomainFlags(cmd *cobra.Command, config *Config) {
+	msgServ := "Comma-separated list of generic DNS resolvers"
+	msgRes := "Comma-separated list of custom authoritative NS servers for the domain"
+
 	cmd.Flags().StringVar(&config.Domain, FlagDomain, "", "Domain")
 	_ = cmd.MarkFlagRequired(FlagDomain) // would return err if FlagDomain wasn't defined above
-	cmd.Flags().StringVar(&config.genericServerInput, "resolvers", GenericServers, "Comma-separated list of generic DNS resolvers")
-	cmd.Flags().StringVar(&config.domainServerInput, FlagNameServers, "", "Comma-separated list of custom authoritative NS servers for the domain")
+	cmd.Flags().StringVar(&config.genericServerInput, "resolvers", GenericServers, msgServ)
+	cmd.Flags().StringVar(&config.domainServerInput, FlagNameServers, "", msgRes)
 
 	return
 }

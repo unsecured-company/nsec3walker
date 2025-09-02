@@ -3,11 +3,11 @@ package nsec3walker
 import (
 	"crypto/sha1"
 	"encoding/base32"
-	"encoding/hex"
 	"fmt"
-	"github.com/miekg/dns"
 	"strings"
 	"time"
+
+	"github.com/miekg/dns"
 )
 
 const DnsPort = "53"
@@ -101,13 +101,7 @@ func getDnsResponse(domain string, authNsServer string, dnsType uint16) (r *dns.
 	return
 }
 
-func CalculateNSEC3(domain string, saltHex string, iterations uint16) (string, error) {
-	// Convert salt from hex to bytes
-	salt, err := hex.DecodeString(saltHex)
-	if err != nil {
-		return "", fmt.Errorf("invalid salt format: %w", err)
-	}
-
+func CalculateNSEC3(domain string, salt []byte, iterations uint16) (string, error) {
 	// Convert domain name to wire format (canonical form)
 	wire, err := domainToWire(domain)
 	if err != nil {
@@ -136,17 +130,13 @@ func calculateHash(data, salt []byte) []byte {
 	return h.Sum(nil)
 }
 
-// domainToWire converts a domain name to its wire format (canonical form)
-// as specified in RFC 4034 Section 6.2
+// domainToWire converts a domain name to its wire format (canonical form) as specified in RFC 4034 Section 6.2
 func domainToWire(domain string) ([]byte, error) {
 	if domain == "" {
 		return nil, fmt.Errorf("empty domain name")
 	}
 
-	// Remove trailing dot if present
 	domain = strings.TrimSuffix(domain, ".")
-
-	// Split domain into labels
 	labels := strings.Split(domain, ".")
 
 	// Calculate required size for wire format
@@ -156,7 +146,6 @@ func domainToWire(domain string) ([]byte, error) {
 	}
 	size++ // +1 for root label (zero byte)
 
-	// Create wire format
 	wire := make([]byte, 0, size)
 	for _, label := range labels {
 		if len(label) > 63 {
