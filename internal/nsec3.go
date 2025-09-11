@@ -3,6 +3,7 @@ package nsec3walker
 import (
 	"crypto/sha1"
 	"encoding/base32"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,53 @@ import (
 )
 
 const DnsPort = "53"
+
+type Nsec3Params struct {
+	domain     string
+	saltString string
+	saltBytes  []byte
+	iterations uint16
+	key        string
+}
+
+func NewNsec3Params(domain string, salt string, iterations int) (n3p Nsec3Params, err error) {
+	n3p = Nsec3Params{
+		domain:     strings.TrimLeft(domain, "."),
+		saltString: salt,
+		iterations: uint16(iterations),
+	}
+
+	n3p.key = fmt.Sprintf("%s|%s|%v", n3p.domain, n3p.saltString, n3p.iterations)
+	n3p.saltBytes, err = hex.DecodeString(salt)
+
+	return
+}
+
+func (n3p Nsec3Params) GetFullDomain(domainPrefix string) string {
+	return strings.TrimLeft(domainPrefix+"."+n3p.domain, ".")
+}
+
+func (n3p Nsec3Params) CalculateHashForPrefix(domainPrefix string) (hash string, err error) {
+	// Convert domain name to wire format (canonical form)
+	wire, err := domainToWire(n3p.GetFullDomain(domainPrefix))
+	if err != nil {
+		return "", fmt.Errorf("invalid domain name: %w", err)
+	}
+
+	// Initial hash
+	hashB := calculateHashSha1(wire, n3p.saltBytes)
+
+	// Perform additional iterations
+	for i := uint16(0); i < n3p.iterations; i++ {
+		hashB = calculateHashSha1(hashB, n3p.saltBytes)
+	}
+
+	// Encode the final hash using base32hex (with padding removed)
+	encoded := base32.HexEncoding.EncodeToString(hashB)
+	encoded = strings.TrimRight(encoded, "=")
+
+	return strings.ToLower(encoded), nil
+}
 
 func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
 	m := new(dns.Msg)
@@ -101,29 +149,8 @@ func getDnsResponse(domain string, authNsServer string, dnsType uint16) (r *dns.
 	return
 }
 
-func CalculateNSEC3(domain string, salt []byte, iterations uint16) (string, error) {
-	// Convert domain name to wire format (canonical form)
-	wire, err := domainToWire(domain)
-	if err != nil {
-		return "", fmt.Errorf("invalid domain name: %w", err)
-	}
-
-	// Initial hash
-	hash := calculateHash(wire, salt)
-
-	// Perform additional iterations
-	for i := uint16(0); i < iterations; i++ {
-		hash = calculateHash(hash, salt)
-	}
-
-	// Encode the final hash using base32hex (with padding removed)
-	encoded := base32.HexEncoding.EncodeToString(hash)
-	encoded = strings.TrimRight(encoded, "=")
-	return strings.ToLower(encoded), nil
-}
-
 // calculateHash performs a single round of SHA-1 hashing
-func calculateHash(data, salt []byte) []byte {
+func calculateHashSha1(data, salt []byte) []byte {
 	h := sha1.New()
 	h.Write(data)
 	h.Write(salt)

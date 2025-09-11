@@ -17,6 +17,7 @@ const (
 	ActionHelp            = "help"
 	ActionUpdateCsv       = "update-csv"
 	ActionWalk            = "walk"
+	ActionCrack           = "crack"
 	CntThreadsPerNs       = 3
 	CsvSeparator          = ","
 	FlagDomain            = "domain"
@@ -24,10 +25,13 @@ const (
 	FlagDumpWordlist      = ActionDumpWordlist
 	FlagFileCsv           = "file-csv"
 	FlagFileHashcat       = "file-hashcat"
+	FlagFileWordlist      = "file-wordlist"
 	FlagNameServers       = "nameservers"
 	FlagProgress          = "progress"
 	FlagQuitAfter         = "quit-after"
 	FlagThreads           = "threads"
+	FlagSalt              = "salt"
+	FlagIterations        = "iterations"
 	FlagUpdateCsv         = ActionUpdateCsv
 	GenericServers        = "8.8.8.8:53,8.8.4.4:53,1.1.1.1:53,77.88.8.8"
 	HashRegexp            = `^[0-9a-v]{32}$`
@@ -41,6 +45,7 @@ const UsageRoot = `Usage:
 Main commands:
   walk        Walk zone for a domain
   file        Process CSV & Hashcat files
+  crack       Simple build in cracking of hashes using a wordlist
 
 Additional commands:
   debug       Show debug information for a domain
@@ -54,6 +59,7 @@ type Config struct {
 	DomainDnsServers      []string
 	FileCsv               string
 	FileHashcat           string
+	FileWordlist          string
 	LogCounterIntervalSec int
 	Output                *Output
 	QuitAfterMin          int
@@ -70,6 +76,8 @@ type Config struct {
 	genericServerInput string
 	help               bool
 	updateCsv          bool
+	Salt               string
+	Iterations         int
 }
 
 func NewConfig() (config *Config, err error) {
@@ -96,6 +104,7 @@ func NewConfig() (config *Config, err error) {
 		cmdWalk(config),
 		cmdFile(config),
 		cmdDebug(config),
+		cmdCrack(config),
 	)
 
 	err = cmd.Execute()
@@ -235,6 +244,37 @@ func cmdFile(config *Config) *cobra.Command {
 	cmd.Flags().BoolVar(&config.updateCsv, FlagUpdateCsv, false, "Update CSV file with plaintext domains from Hashcat")
 	cmd.Flags().StringVar(&config.FileHashcat, FlagFileHashcat, "", "A Hashcat .potfile file containing cracked hashes")
 	cmd.Flags().StringVar(&config.FileCsv, FlagFileCsv, "", "A nsec3walker .csv file")
+	addCommonFlags(cmd, config)
+
+	return cmd
+}
+
+func cmdCrack(config *Config) *cobra.Command {
+	var cmd = &cobra.Command{
+		Use:           "crack [flags]",
+		Short:         "Cracking",
+		Long:          "Build in cracking using wordlist, slow, use just for verifying",
+		SilenceErrors: true,
+		Run:           func(cmd *cobra.Command, args []string) {},
+		PostRunE: func(cmd *cobra.Command, args []string) error {
+			hasAllFile := config.FileCsv != "" && config.FileWordlist != ""
+			hasAllParams := config.Domain != "" && config.Salt != "" && config.Iterations != 0
+
+			if !hasAllFile && !hasAllParams {
+				msg := "Specify either (--%s & --%s) or [--%s & --%s & --%s]"
+				return fmt.Errorf(msg, FlagFileCsv, FlagFileWordlist, FlagDomain, FlagSalt, FlagIterations)
+			}
+
+			config.Action = ActionCrack
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&config.FileCsv, FlagFileCsv, "", "A nsec3walker .csv file")
+	cmd.Flags().StringVar(&config.FileWordlist, FlagFileWordlist, "", "Wordlist file")
+	cmd.Flags().StringVar(&config.Domain, FlagDomain, "", "Domain")
+	cmd.Flags().StringVarP(&config.Salt, FlagSalt, "s", "", "Salt for hash")
+	cmd.Flags().IntVarP(&config.Iterations, FlagIterations, "i", 0, "Iterations for hash")
 	addCommonFlags(cmd, config)
 
 	return cmd

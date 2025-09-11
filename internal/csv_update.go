@@ -1,7 +1,7 @@
 package nsec3walker
 
 type CsvUpdate struct {
-	HashCat    *HashCat
+	Cracked    *Cracked
 	Csv        *Csv
 	cnf        *Config
 	cntChanged int
@@ -14,13 +14,22 @@ func NewCsvUpdate(config *Config) (update *CsvUpdate, err error) {
 	}
 
 	csv, err := NewCsv(config.FileCsv, config.Output)
-
 	if err != nil {
 		return
 	}
 
 	update = &CsvUpdate{
-		HashCat: hashCat,
+		Cracked: hashCat.Cracked,
+		Csv:     csv,
+		cnf:     config,
+	}
+
+	return
+}
+
+func NewCsvUpdateForData(config *Config, csv *Csv, cracked *Cracked) (update *CsvUpdate) {
+	update = &CsvUpdate{
+		Cracked: cracked,
 		Csv:     csv,
 		cnf:     config,
 	}
@@ -30,7 +39,6 @@ func NewCsvUpdate(config *Config) (update *CsvUpdate, err error) {
 
 func (cu *CsvUpdate) Run() (err error) {
 	err = cu.Csv.StartNew()
-
 	if err != nil {
 		return
 	}
@@ -39,20 +47,17 @@ func (cu *CsvUpdate) Run() (err error) {
 	go cu.csvToChan(chanCsvItem)
 
 	for csvItem := range chanCsvItem {
-		key := getHashcatMapKey(csvItem.Domain, csvItem.Salt, csvItem.Iterations)
-		_, ok := cu.HashCat.Domains[key]
+		plaintext, ok, errNow := cu.Cracked.GetForCsvItem(csvItem)
+		if errNow != nil {
+			return errNow
+		}
 
-		if ok {
-			plaintext, ok := cu.HashCat.Domains[key][csvItem.Hash]
-
-			if ok && plaintext != csvItem.Plaintext {
-				csvItem.Plaintext = plaintext
-				cu.cntChanged++
-			}
+		if ok && plaintext != csvItem.Plaintext {
+			csvItem.Plaintext = plaintext
+			cu.cntChanged++
 		}
 
 		err = cu.Csv.FileTemp.Insert(csvItem)
-
 		if err != nil {
 			return
 		}

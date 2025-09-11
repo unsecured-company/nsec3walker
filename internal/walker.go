@@ -1,7 +1,6 @@
 package nsec3walker
 
 import (
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,29 +29,10 @@ type NSec3Walker struct {
 	chanHashesNew   chan string
 }
 
-type Nsec3Params struct {
-	domain     string
-	saltString string
-	saltBytes  []byte
-	iterations uint16
-}
-
 type Nsec3Record struct {
 	Start string
 	End   string
 	Types []uint16
-}
-
-func NewNsec3Params(domain string, salt string, iterations uint16) (np Nsec3Params, err error) {
-	np = Nsec3Params{
-		domain:     domain,
-		saltString: salt,
-		iterations: iterations,
-	}
-
-	np.saltBytes, err = hex.DecodeString(salt)
-
-	return
 }
 
 func NewNSec3Walker(config *Config) (nsecWalker *NSec3Walker) {
@@ -100,6 +80,13 @@ func (nw *NSec3Walker) RunDebug() (err error) {
 			}
 		}
 	}
+
+	return
+}
+
+func (nw *NSec3Walker) RunCrack() (err error) {
+	cracking := NewCracking(nw.config, nw.out)
+	err = cracking.Run()
 
 	return
 }
@@ -285,7 +272,7 @@ func (nw *NSec3Walker) setNsec3Values(salt string, iterations uint16) (err error
 	}
 
 	if nw.nsec.saltString != "" && nw.nsec.saltString != salt {
-		return fmt.Errorf("NSEC3 saltString changed from %s to %s", nw.nsec.saltString, salt)
+		return fmt.Errorf("NSEC3 salt changed from %s to %s", nw.nsec.saltString, salt)
 	}
 
 	if nw.nsec.iterations != 0 && nw.nsec.iterations != iterations {

@@ -3,8 +3,10 @@ package nsec3walker
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -119,4 +121,34 @@ func createFilePrefix(domain string) (prefix string) {
 	date := time.Now().Format("2006_01_02-15_04") // 2025_02_24-13_59
 
 	return domain + "-" + date
+}
+
+func FileToChan(inFile *os.File, outChan chan string, closeChan bool) (err error) {
+	_, err = inFile.Seek(0, io.SeekStart)
+	if err != nil {
+		return fmt.Errorf("Failed to seek to the beginning of the file: %v", err)
+	}
+
+	scanner := bufio.NewScanner(inFile)
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+
+		if line == "" {
+			continue
+		}
+
+		outChan <- line
+	}
+
+	if closeChan {
+		close(outChan)
+	}
+
+	err = scanner.Err()
+	if err != nil {
+		return fmt.Errorf("Failed to read the csv file: %v", err)
+	}
+
+	return
 }

@@ -1,7 +1,6 @@
 package nsec3walker
 
 import (
-	"encoding/hex"
 	"fmt"
 	"hash/crc32"
 	"os"
@@ -19,9 +18,7 @@ type DomainGenerator struct {
 	chanDomain  chan *Domain
 	ranges      *RangeIndex
 	out         *Output
-	nsec3Domain string
-	nsec3Salt   []byte
-	nsec3Iter   uint16
+	nsec3Params Nsec3Params
 	counter     []int8
 	chars       []rune
 	len         int8
@@ -39,20 +36,19 @@ func NewDomainGenerator(
 	ranges *RangeIndex,
 	output *Output,
 ) (dg *DomainGenerator, err error) {
+	n3p, err := NewNsec3Params(nsec3Domain, nsec3Salt, int(nsec3Iter))
+	if err != nil {
+		err = fmt.Errorf("invalid NSEC3 parameters: %w", err)
+	}
+
 	dg = &DomainGenerator{
 		chanDomain:  make(chan *Domain, cntChanDomain),
 		ranges:      ranges,
 		out:         output,
-		nsec3Domain: nsec3Domain,
-		nsec3Iter:   nsec3Iter,
+		nsec3Params: n3p,
 		counter:     []int8{0, 0, 0, 0}, // "aaaa"
 		chars:       []rune(charset),
 		len:         int8(len(charset)),
-	}
-
-	dg.nsec3Salt, err = hex.DecodeString(nsec3Salt)
-	if err != nil {
-		err = fmt.Errorf("invalid NSEC3 saltString format: %w", err)
 	}
 
 	return
@@ -70,8 +66,7 @@ func (dg *DomainGenerator) hashWorker(chanOut chan *Domain) {
 	var err error
 
 	for domain := range dg.chanDomain {
-		domain.Hash, err = CalculateNSEC3(domain.Domain, dg.nsec3Salt, dg.nsec3Iter)
-
+		domain.Hash, err = dg.nsec3Params.CalculateHashForPrefix(domain.Domain)
 		if err != nil {
 			dg.out.Log("Error calculating NSEC3 hash for domain " + domain.Domain + ": " + err.Error())
 
@@ -87,7 +82,7 @@ func (dg *DomainGenerator) hashWorker(chanOut chan *Domain) {
 }
 
 func (dg *DomainGenerator) generateDomains() {
-	suffix := dg.getRandomPrefix() + "." + dg.nsec3Domain
+	suffix := dg.getRandomPrefix() + "." + dg.nsec3Params.domain
 
 	for {
 		dg.chanDomain <- &Domain{Domain: dg.toString() + suffix}

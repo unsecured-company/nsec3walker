@@ -16,8 +16,7 @@ type HashCat struct {
 	PotFile *os.File
 	Count   int
 	cnf     *Config
-	Domains map[string]map[string]string
-	// ".cz|salt|iterations" -> "" -> "c17odk0qjlecpl8eldnctr21vpck06bq" -> "abtest"
+	Cracked *Cracked
 }
 
 func NewHashCat(potFilePath string, cnf *Config) (hashCat *HashCat, err error) {
@@ -29,7 +28,7 @@ func NewHashCat(potFilePath string, cnf *Config) (hashCat *HashCat, err error) {
 
 	hashCat = &HashCat{
 		PotFile: potFile,
-		Domains: make(map[string]map[string]string),
+		Cracked: NewCracked(),
 		cnf:     cnf,
 	}
 
@@ -53,7 +52,7 @@ func (h *HashCat) PrintPlaintextWordlist() {
 }
 
 func (h *HashCat) printPlaintext(full bool) {
-	for key, hashes := range h.Domains {
+	for key, hashes := range h.Cracked.Iterate() {
 		domain := strings.Split(key, "|")[0]
 
 		for _, plaintext := range hashes {
@@ -77,25 +76,22 @@ func (h *HashCat) load() (err error) {
 		parts := strings.Split(line, ":")
 
 		//c17odk0qjlecpl8eldnctr21vpck06bq:.cz:cb6658404d098de6:0:abtest
-		// 0 hash | 1 domain | 2 saltString | 3 iterations | 4 plaintext
+		// 0 hash | 1 domain | 2 salt | 3 iterations | 4 plaintext
 		if len(parts) != CntHashcatPotParts || !re.MatchString(parts[0]) {
 			h.cnf.Output.LogVerbose("Invalid line: " + line)
 			continue
 		}
 
-		domain := strings.TrimLeft(parts[4]+parts[1], ".")
-		key := getHashcatMapKey(parts[1], parts[2], parts[3])
-		hash := parts[0]
-
-		if _, ok := h.Domains[key]; !ok {
-			h.Domains[key] = make(map[string]string)
+		err = h.Cracked.AddFromHashcatParts(parts[0], parts[1], parts[2], parts[3], parts[4])
+		if err != nil {
+			h.cnf.Output.LogVerbose("Invalid line: " + line)
+			continue
 		}
 
-		h.Domains[key][hash] = domain
 		h.Count++
 	}
 
-	if err := scanner.Err(); err != nil {
+	if err = scanner.Err(); err != nil {
 		err = fmt.Errorf("error reading Hashcat Pot file: %s", err)
 	}
 
@@ -105,17 +101,11 @@ func (h *HashCat) load() (err error) {
 func (h *HashCat) printVerboseCounts() {
 	var domainsCount string
 
-	for key, hashes := range h.Domains {
+	for key, hashes := range h.Cracked.Iterate() {
 		cnt := len(hashes)
 		parts := strings.Split(key, "|")
 		domainsCount += fmt.Sprintf("| %d %s ", cnt, strings.Trim(parts[0], "."))
 	}
 
 	h.cnf.Output.LogVerbosef("Hashcat counts: %d all %s", h.Count, domainsCount)
-}
-
-func getHashcatMapKey(domain string, salt string, iterations interface{}) string {
-	domain = strings.TrimLeft(domain, ".")
-
-	return fmt.Sprintf("%s|%s|%v", domain, salt, iterations)
 }

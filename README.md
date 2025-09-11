@@ -37,6 +37,7 @@ nsec3walker command [flags]
 Main commands:
   walk        Walk zone for a domain
   file        Process CSV & Hashcat files
+  crack       Simple build in cracking of hashes using a wordlist
 
 Additional commands:
   debug       Show debug information for a domain

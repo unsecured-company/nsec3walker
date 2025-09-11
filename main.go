@@ -8,7 +8,7 @@ import (
 	"github.com/unsecured-company/nsec3walker/internal"
 )
 
-const Version = "2.0.5-250901"
+const Version = "2.0.6dev-250912"
 
 func main() {
 	_, _ = fmt.Fprintln(os.Stderr, "nsec3walker "+Version+" | https://unsecured.company")
@@ -23,6 +23,8 @@ func main() {
 		os.Exit(0)
 	case nsec3walker.ActionWalk:
 		err = nw.RunWalk()
+	case nsec3walker.ActionCrack:
+		err = nw.RunCrack()
 	case nsec3walker.ActionDebug:
 		err = nw.RunDebug()
 	case nsec3walker.ActionUpdateCsv:
