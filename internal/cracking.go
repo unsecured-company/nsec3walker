@@ -37,14 +37,15 @@ func NewCracking(cnf *Config, out *Output) (c *Cracking) {
 
 func (c *Cracking) Run() (err error) {
 	hasFile := c.cnf.FileWordlist != ""
-	hasDomain := c.cnf.Domain != ""
+	hasSalt := c.cnf.Salt != ""
 
 	if hasFile {
 		return c.runWordlist()
-	} else if hasDomain {
+	} else if hasSalt {
 		return c.runSingle()
 	} else {
-		return fmt.Errorf("either --file-wordlist or --domain must be specified")
+		msg := "Specify either (--%s & --%s) or [--%s & --%s & --%s]"
+		return fmt.Errorf(msg, FlagFileCsv, FlagFileWordlist, FlagDomain, FlagSalt, FlagIterations)
 	}
 }
 
@@ -139,19 +140,16 @@ func (c *Cracking) runSingle() (err error) {
 		return
 	}
 
-	msg := "Get hash for domain [%s] with salt [%s] having [%d] iterations.\n"
+	domPrefix := "" // The nsec3params domain is the full domain name
+	msg := "Get hash for domain [%s] with salt [%s] having [%d] iterations."
 	c.out.Logf(msg, n3p.domain, n3p.saltString, n3p.iterations)
-	hash, err := n3p.CalculateHashForPrefix(n3p.domain)
+
+	hash, err := n3p.CalculateHashForPrefix(domPrefix)
 	if err != nil {
 		return
 	}
 
-	parts := strings.Split(n3p.domain, ".")
-	domPrefix := parts[0]
-	domSuffix := strings.TrimPrefix(n3p.domain, domPrefix)
-
-	printHashcatFormat(hash, "", n3p.domain, n3p)
-	printHashcatFormat(hash, domPrefix, domSuffix, n3p)
+	printHashcatFormat(hash, domPrefix, n3p.domain, n3p)
 
 	return
 }
@@ -159,8 +157,7 @@ func (c *Cracking) runSingle() (err error) {
 func (c *Cracking) runCracker() {
 	for word := range c.chanWords {
 		for _, n3p := range c.nsec3params {
-			domain := strings.TrimLeft(word+"."+n3p.domain, ".")
-			hash, err := n3p.CalculateHashForPrefix(domain)
+			hash, err := n3p.CalculateHashForPrefix(word)
 			if err != nil {
 				return
 			}

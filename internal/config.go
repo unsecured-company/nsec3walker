@@ -258,7 +258,7 @@ func cmdCrack(config *Config) *cobra.Command {
 		Run:           func(cmd *cobra.Command, args []string) {},
 		PostRunE: func(cmd *cobra.Command, args []string) error {
 			hasAllFile := config.FileCsv != "" && config.FileWordlist != ""
-			hasAllParams := config.Domain != "" && config.Salt != "" && config.Iterations != 0
+			hasAllParams := config.Salt != ""
 
 			if !hasAllFile && !hasAllParams {
 				msg := "Specify either (--%s & --%s) or [--%s & --%s & --%s]"
@@ -323,7 +323,7 @@ func (cnf *Config) processAuthNsServers(getFromRoot bool) (err error) {
 			if errNoConnection(err) {
 				cnf.Output.Log("No route to " + server)
 			} else {
-				cnf.Output.Logf("Error getting NS servers from %s: %v\n", server, err)
+				cnf.Output.Logf("Error getting NS servers from %s: %v", server, err)
 			}
 
 			continue
@@ -360,7 +360,7 @@ func (cnf *Config) parseServersValue(serversStr string) (servers []string) {
 	serversItems := strings.Split(serversStr, ",")
 
 	for _, server := range serversItems {
-		server = ParseDnsServerValue(server)
+		server = prepareDnsServerAddress(server)
 		if server != "" {
 			servers = append(servers, server)
 		}

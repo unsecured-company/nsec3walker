@@ -39,8 +39,14 @@ func (n3p Nsec3Params) GetFullDomain(domainPrefix string) string {
 }
 
 func (n3p Nsec3Params) CalculateHashForPrefix(domainPrefix string) (hash string, err error) {
+	fullDom := n3p.GetFullDomain(domainPrefix)
+
+	return n3p.CalculateHashForDomain(fullDom)
+}
+
+func (n3p Nsec3Params) CalculateHashForDomain(domainFull string) (hash string, err error) {
 	// Convert domain name to wire format (canonical form)
-	wire, err := domainToWire(n3p.GetFullDomain(domainPrefix))
+	wire, err := domainToWire(domainFull)
 	if err != nil {
 		return "", fmt.Errorf("invalid domain name: %w", err)
 	}
@@ -58,6 +64,14 @@ func (n3p Nsec3Params) CalculateHashForPrefix(domainPrefix string) (hash string,
 	encoded = strings.TrimRight(encoded, "=")
 
 	return strings.ToLower(encoded), nil
+}
+
+// calculateHash performs a single round of SHA-1 hashing
+func calculateHashSha1(data, salt []byte) []byte {
+	h := sha1.New()
+	h.Write(data)
+	h.Write(salt)
+	return h.Sum(nil)
 }
 
 func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
@@ -79,8 +93,7 @@ func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
 
 	for _, ans := range in.Answer {
 		if ns, ok := ans.(*dns.NS); ok {
-			nsStr := ParseDnsServerValue(ns.Ns)
-			nsStr = strings.ToLower(nsStr)
+			nsStr := prepareDnsServerAddress(ns.Ns)
 
 			nameservers = append(nameservers, nsStr)
 		}
@@ -89,9 +102,8 @@ func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
 	return nameservers, nil
 }
 
-func ParseDnsServerValue(value string) (server string) {
-	server = strings.TrimSpace(value)
-	server = strings.Trim(server, ".")
+func prepareDnsServerAddress(value string) (server string) {
+	server = strings.ToLower(strings.Trim(strings.TrimSpace(value), "."))
 
 	if server != "" && !strings.Contains(server, ":") {
 		server = server + ":" + DnsPort
@@ -149,18 +161,10 @@ func getDnsResponse(domain string, authNsServer string, dnsType uint16) (r *dns.
 	return
 }
 
-// calculateHash performs a single round of SHA-1 hashing
-func calculateHashSha1(data, salt []byte) []byte {
-	h := sha1.New()
-	h.Write(data)
-	h.Write(salt)
-	return h.Sum(nil)
-}
-
 // domainToWire converts a domain name to its wire format (canonical form) as specified in RFC 4034 Section 6.2
-func domainToWire(domain string) ([]byte, error) {
+func domainToWire(domain string) (domainB []byte, err error) {
 	if domain == "" {
-		return nil, fmt.Errorf("empty domain name")
+		return
 	}
 
 	domain = strings.TrimSuffix(domain, ".")

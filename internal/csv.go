@@ -70,6 +70,10 @@ func NewCsvFile(filePath string, isNew bool) (csvFile *CsvFile, err error) {
 func NewCsv(csvFilePath string, out *Output) (csv *Csv, err error) {
 	csvFileRes, err := NewCsvFile(csvFilePath, false)
 
+	if err != nil {
+		return
+	}
+
 	csv = &Csv{
 		FileInput: csvFileRes,
 		out:       out,

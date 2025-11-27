@@ -66,7 +66,7 @@ func (dg *DomainGenerator) hashWorker(chanOut chan *Domain) {
 	var err error
 
 	for domain := range dg.chanDomain {
-		domain.Hash, err = dg.nsec3Params.CalculateHashForPrefix(domain.Domain)
+		domain.Hash, err = dg.nsec3Params.CalculateHashForDomain(domain.Domain)
 		if err != nil {
 			dg.out.Log("Error calculating NSEC3 hash for domain " + domain.Domain + ": " + err.Error())
 
