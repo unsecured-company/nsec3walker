@@ -1,8 +1,16 @@
-.PHONY: all linux mac windows clean
+.PHONY: all linux mac windows clean test bench
 
 all: linux mac windows
 linux: linux_amd64 linux_arm64
 mac: mac_amd64 mac_arm64
+
+test:
+	@echo "Running tests..."
+	go test -v ./...
+
+bench:
+	@echo "Running benchmarks..."
+	go test ./internal/... -run '^$$' -bench . -benchmem
 
 linux_amd64:
 	@echo "Building for Linux..."

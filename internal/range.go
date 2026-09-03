@@ -94,22 +94,18 @@ func (ht *HashTree) allRangesComplete() bool {
 	return lastEndHash == firstHash
 }
 
-// returns range that starts with the largest key that is less than the input hash
+// ClosestBefore returns the range that starts with the largest key less than
+// or equal to the input hash (the tree's floor), in O(log n).
 func (ht *HashTree) ClosestBefore(input string) (startHash string, endHash string, found bool) {
-	// TODO: Why cant we use range and built in iterator?
 	ht.mutex.RLock()
 	defer ht.mutex.RUnlock()
-	iterator := ht.tree.Iterator()
-	for iterator.Next() {
-		if iterator.Key().(string) >= input {
-			break
-		}
+	node, ok := ht.tree.Floor(input)
+	if !ok {
+		return
 	}
-	if iterator.Prev() {
-		startHash = iterator.Key().(string)
-		endHash = iterator.Value().(string)
-		found = true
-	}
+	startHash = node.Key.(string)
+	endHash = node.Value.(string)
+	found = true
 	return
 }
 
@@ -167,8 +163,9 @@ func (ri *RangeIndex) Add(hashStart string, hashEnd string) (existsStart bool, e
 // isHashInRange determines whether a given hash falls within any of the stored hash ranges.
 func (ri *RangeIndex) isHashInRange(hash string) (inRange bool, exactRange string) {
 	// first check edge case of hash being between last and first hash
+	// (inclusive: the wrap-around range's own start/end hashes are themselves covered)
 	lastHash, lastVal := ri.index.GetLastRange()
-	if lastVal != "" && lastVal < lastHash && (hash < lastVal || hash > lastHash) {
+	if lastVal != "" && lastVal < lastHash && (hash <= lastVal || hash >= lastHash) {
 		exactRange = lastHash + "=" + lastVal
 
 		return true, exactRange
