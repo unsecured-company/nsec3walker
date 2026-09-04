@@ -2,7 +2,7 @@ package nsec3walker
 
 import (
 	"fmt"
-	"math"
+	"math/big"
 	"os"
 	"sync/atomic"
 	"time"
@@ -10,15 +10,16 @@ import (
 
 type Stats struct {
 	out                  *Output
-	queries              atomic.Int64
+	ranges               *RangeIndex
 	hashes               atomic.Int64
 	queriesWithoutResult atomic.Int64
 	secondsWithoutResult atomic.Int64
 }
 
-func NewStats(out *Output) *Stats {
+func NewStats(out *Output, ranges *RangeIndex) *Stats {
 	return &Stats{
-		out: out,
+		out:    out,
+		ranges: ranges,
 	}
 }
 
@@ -26,29 +27,25 @@ func (stats *Stats) logCounterChanges(interval time.Duration, quitAfterMin int) 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	var cntQueryLast int64
 	var cntHashLast int64
 
 	for {
 		<-ticker.C
-		cntQuery := stats.queries.Load()
-		cntHash := stats.hashes.Load()
-		cntQ := atomic.LoadInt64(&cntQuery)
-		cntH := atomic.LoadInt64(&cntHash)
-		deltaQ := cntQ - cntQueryLast
+		cntH := stats.hashes.Load()
 		deltaH := cntH - cntHashLast
-		ratioTotal := stats.calculateRatio(cntH, cntQ)
-		ratioDelta := stats.calculateRatio(deltaH, deltaQ)
 
 		qWithoutResult := stats.queriesWithoutResult.Load()
 		secWithoutResult := stats.secondsWithoutResult.Load()
 
-		msg := "In the last %v: Queries total/change %d/%d | Hashes total/change: %d/%d | Ratio total/change %d%%/%d%%"
-		msg += " | Without answer: %d , seconds %d"
-		msgLog := fmt.Sprintf(msg, interval, cntQ, deltaQ, cntH, deltaH, ratioTotal, ratioDelta, qWithoutResult, secWithoutResult)
-		stats.out.Log(msgLog)
+		msg := fmt.Sprintf("Hashes: %d (+%d in last %v)", cntH, deltaH, interval)
+		msg += stats.estimateMsg(cntH)
 
-		cntQueryLast = cntQ
+		if qWithoutResult > 0 {
+			msg += fmt.Sprintf(" | No new hash for %d queries / %ds", qWithoutResult, secWithoutResult)
+		}
+
+		stats.out.Log(msg)
+
 		cntHashLast = cntH
 		stats.secondsWithoutResult.Add(int64(interval.Seconds()))
 
@@ -57,6 +54,29 @@ func (stats *Stats) logCounterChanges(interval time.Duration, quitAfterMin int) 
 			os.Exit(0) // successful run
 		}
 	}
+}
+
+// estimateMsg formats the predicted zone size, e.g. " | Estimated zone size:
+// ~1234 (42.0% discovered, ~700 missing)". It returns "" until enough of the
+// ring has been covered to extrapolate from.
+func (stats *Stats) estimateMsg(discovered int64) string {
+	estimatedTotal, ok := stats.ranges.EstimateTotal(discovered)
+	if !ok {
+		return ""
+	}
+
+	missing := new(big.Int).Sub(estimatedTotal, big.NewInt(discovered))
+	if missing.Sign() < 0 {
+		missing.SetInt64(0)
+	}
+
+	percent := new(big.Float).Quo(
+		new(big.Float).SetInt64(discovered*100),
+		new(big.Float).SetInt(estimatedTotal),
+	)
+	percentF, _ := percent.Float64()
+
+	return fmt.Sprintf(" | Estimated zone size: ~%s (%.1f%% discovered, ~%s missing)", estimatedTotal, percentF, missing)
 }
 
 func (stats *Stats) gotHash(startExists bool, endExists bool) {
@@ -76,21 +96,5 @@ func (stats *Stats) gotHash(startExists bool, endExists bool) {
 }
 
 func (stats *Stats) didQuery() {
-	stats.queries.Add(1)
 	stats.queriesWithoutResult.Add(1)
-}
-
-func (stats *Stats) calculateRatio(numerator, denominator int64) int {
-	if denominator == 0 {
-		return 0
-	}
-
-	ratio := int(math.Round((float64(numerator) / float64(denominator)) * 100))
-
-	// Sometimes goes over 100% - great work, comrades!
-	if ratio > 100 {
-		return 100
-	}
-
-	return ratio
 }

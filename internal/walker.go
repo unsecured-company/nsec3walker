@@ -36,12 +36,13 @@ type Nsec3Record struct {
 }
 
 func NewNSec3Walker(config *Config) (nsecWalker *NSec3Walker) {
-	stats := NewStats(config.Output)
+	ranges := NewRangeIndex()
+	stats := NewStats(config.Output, ranges)
 
 	nsecWalker = &NSec3Walker{
 		config:          config,
 		chanHashesFound: make(chan Nsec3Record, 1000),
-		ranges:          NewRangeIndex(),
+		ranges:          ranges,
 		out:             config.Output,
 		stats:           stats,
 	}
