@@ -52,26 +52,25 @@ func (n3p Nsec3Params) CalculateHashForDomain(domainFull string) (hash string, e
 	}
 
 	// Initial hash
-	hashB := calculateHashSha1(wire, n3p.saltBytes)
+	sum := sha1.Sum(append(wire, n3p.saltBytes...))
 
-	// Perform additional iterations
-	for i := uint16(0); i < n3p.iterations; i++ {
-		hashB = calculateHashSha1(hashB, n3p.saltBytes)
+	// Perform additional iterations, reusing a single (hash || salt) buffer
+	// instead of allocating a new hash.Hash and result slice every round.
+	if n3p.iterations > 0 {
+		buf := make([]byte, sha1.Size+len(n3p.saltBytes))
+		copy(buf[sha1.Size:], n3p.saltBytes)
+
+		for i := uint16(0); i < n3p.iterations; i++ {
+			copy(buf[:sha1.Size], sum[:])
+			sum = sha1.Sum(buf)
+		}
 	}
 
 	// Encode the final hash using base32hex (with padding removed)
-	encoded := base32.HexEncoding.EncodeToString(hashB)
+	encoded := base32.HexEncoding.EncodeToString(sum[:])
 	encoded = strings.TrimRight(encoded, "=")
 
 	return strings.ToLower(encoded), nil
-}
-
-// calculateHash performs a single round of SHA-1 hashing
-func calculateHashSha1(data, salt []byte) []byte {
-	h := sha1.New()
-	h.Write(data)
-	h.Write(salt)
-	return h.Sum(nil)
 }
 
 func getNameServersFromDnsServer(domain, serverAddr string) ([]string, error) {
