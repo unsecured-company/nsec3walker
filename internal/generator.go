@@ -18,9 +18,10 @@ type DomainGenerator struct {
 	chanDomain  chan *Domain
 	ranges      *RangeIndex
 	out         *Output
+	stats       *Stats
 	nsec3Params Nsec3Params
 	counter     []int8
-	chars       []rune
+	chars       []byte
 	len         int8
 }
 
@@ -35,6 +36,7 @@ func NewDomainGenerator(
 	nsec3Iter uint16,
 	ranges *RangeIndex,
 	output *Output,
+	stats *Stats,
 ) (dg *DomainGenerator, err error) {
 	n3p, err := NewNsec3Params(nsec3Domain, nsec3Salt, int(nsec3Iter))
 	if err != nil {
@@ -45,9 +47,10 @@ func NewDomainGenerator(
 		chanDomain:  make(chan *Domain, cntChanDomain),
 		ranges:      ranges,
 		out:         output,
+		stats:       stats,
 		nsec3Params: n3p,
 		counter:     []int8{0, 0, 0, 0}, // "aaaa"
-		chars:       []rune(charset),
+		chars:       []byte(charset),
 		len:         int8(len(charset)),
 	}
 
@@ -67,13 +70,15 @@ func (dg *DomainGenerator) hashWorker(chanOut chan *Domain) {
 
 	for domain := range dg.chanDomain {
 		domain.Hash, err = dg.nsec3Params.CalculateHashForDomain(domain.Domain)
+		dg.stats.hashedCandidate()
+
 		if err != nil {
 			dg.out.Log("Error calculating NSEC3 hash for domain " + domain.Domain + ": " + err.Error())
 
 			continue
 		}
 
-		inRange, _ := dg.ranges.isHashInRange(domain.Hash)
+		inRange, _, _ := dg.ranges.isHashInRange(domain.Hash)
 
 		if !inRange {
 			chanOut <- &Domain{Domain: domain.Domain, Hash: domain.Hash}
@@ -123,7 +128,7 @@ func (dg *DomainGenerator) positions() int8 {
 }
 
 func (dg *DomainGenerator) toString() string {
-	result := make([]rune, len(dg.counter))
+	result := make([]byte, len(dg.counter))
 
 	for i, idx := range dg.counter {
 		result[i] = dg.chars[idx]

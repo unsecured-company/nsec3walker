@@ -1,4 +1,4 @@
-.PHONY: all linux mac windows clean test bench
+.PHONY: all linux mac windows clean test race bench
 
 all: linux mac windows
 linux: linux_amd64 linux_arm64
@@ -6,7 +6,11 @@ mac: mac_amd64 mac_arm64
 
 test:
 	@echo "Running tests..."
-	go test -v ./...
+	go test ./...
+
+race:
+	@echo "Running tests with race detector..."
+	go test -race ./...
 
 bench:
 	@echo "Running benchmarks..."

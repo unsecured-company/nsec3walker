@@ -3,6 +3,7 @@ package nsec3walker
 import (
 	"fmt"
 	"math/rand"
+	"runtime"
 	"testing"
 )
 
@@ -132,7 +133,7 @@ func TestRangeIndex_isHashInRange(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			inRange, _ := ri.isHashInRange(tt.hash)
+			inRange, _, _ := ri.isHashInRange(tt.hash)
 			if inRange != tt.inRange {
 				t.Errorf("isHashInRange(%q) = %v, want %v", tt.hash, inRange, tt.inRange)
 			}
@@ -146,7 +147,7 @@ func TestRangeIndex_isHashInRange_UncoveredGap(t *testing.T) {
 	ri := NewRangeIndex()
 	ri.Add("m", "p") // only one range known; "p" is a dangling end
 
-	if inRange, _ := ri.isHashInRange("q"); inRange {
+	if inRange, _, _ := ri.isHashInRange("q"); inRange {
 		t.Fatal("hash after the only known range's dangling end should not be in range")
 	}
 }
@@ -213,6 +214,116 @@ func BenchmarkRangeIndex_isHashInRange(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				ri.isHashInRange(queries[i])
 			}
+		})
+	}
+}
+
+// BenchmarkRangeIndex_isHashInRange_Miss complements
+// BenchmarkRangeIndex_isHashInRange: instead of querying keys guaranteed to
+// already be covered (the late-walk case), it queries uniformly across the
+// full hash space while only a narrow band of it is populated - modeling
+// early/mid-walk, where the index is still sparse and most generated
+// candidates do NOT fall in any known range yet. This exercises the code
+// path in isHashInRange that falls through both the wrap-around check and
+// the hash<=closestEnd check, which the hit-only benchmark never reaches.
+func BenchmarkRangeIndex_isHashInRange_Miss(b *testing.B) {
+	for _, n := range []int{100, 1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("ranges=%d", n), func(b *testing.B) {
+			ri := NewRangeIndex()
+
+			keys := make([]string, n)
+			for i := 0; i < n; i++ {
+				keys[i] = fmt.Sprintf("%08x", i)
+			}
+			for i := 0; i < n; i++ {
+				ri.Add(keys[i], keys[(i+1)%n])
+			}
+
+			r := rand.New(rand.NewSource(1))
+			queries := make([]string, b.N)
+			for i := range queries {
+				queries[i] = fmt.Sprintf("%08x", r.Uint32())
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				ri.isHashInRange(queries[i])
+			}
+		})
+	}
+}
+
+// BenchmarkRangeIndex_Add measures the cost of adding a new range (which
+// includes the incremental ring-completion bookkeeping in mergeChain) once a
+// large number of ranges are already chained together. It should stay flat
+// as n grows - the old allRangesComplete() full-tree rescan on every Add
+// would instead have made this scale linearly with n.
+func BenchmarkRangeIndex_Add(b *testing.B) {
+	for _, n := range []int{100, 1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("ranges=%d", n), func(b *testing.B) {
+			ri := NewRangeIndex()
+
+			keys := make([]string, n)
+			for i := 0; i < n; i++ {
+				keys[i] = fmt.Sprintf("%08x", i)
+			}
+			for i := 0; i < n-1; i++ {
+				ri.Add(keys[i], keys[i+1])
+			}
+
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				k1 := fmt.Sprintf("extra-%08x-a", i)
+				k2 := fmt.Sprintf("extra-%08x-b", i)
+				ri.Add(k1, k2)
+			}
+		})
+	}
+}
+
+// BenchmarkRangeIndex_Concurrent mirrors how RunWalk actually drives a
+// RangeIndex: many hash-worker goroutines call isHashInRange (RLock-only,
+// via HashTree.mutex) far more often than the handful of per-NS goroutines
+// that call Add (which additionally takes addMutex). It measures lock
+// contention between readers and writers under GOMAXPROCS-wide concurrency,
+// which the single-goroutine benchmarks above can't surface.
+func BenchmarkRangeIndex_Concurrent(b *testing.B) {
+	for _, n := range []int{100, 1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("ranges=%d", n), func(b *testing.B) {
+			ri := NewRangeIndex()
+
+			keys := make([]string, n)
+			for i := 0; i < n; i++ {
+				keys[i] = fmt.Sprintf("%08x", i)
+			}
+			for i := 0; i < n; i++ {
+				ri.Add(keys[i], keys[(i+1)%n])
+			}
+
+			// Reserve one of every runtime.NumCPU() parallel goroutines to
+			// be a writer, approximating the walker's ratio of many
+			// hash-checking workers to few NS-querying workers.
+			writerStride := runtime.NumCPU()
+			if writerStride < 2 {
+				writerStride = 2
+			}
+
+			b.ResetTimer()
+			b.RunParallel(func(pb *testing.PB) {
+				r := rand.New(rand.NewSource(rand.Int63()))
+				isWriter := r.Intn(writerStride) == 0
+				i := 0
+				for pb.Next() {
+					if isWriter {
+						k1 := fmt.Sprintf("extra-%08x-%08x-a", i, r.Int63())
+						k2 := fmt.Sprintf("extra-%08x-%08x-b", i, r.Int63())
+						ri.Add(k1, k2)
+					} else {
+						ri.isHashInRange(fmt.Sprintf("%08x", r.Intn(n)))
+					}
+					i++
+				}
+			})
 		})
 	}
 }

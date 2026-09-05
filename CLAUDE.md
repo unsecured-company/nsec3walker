@@ -12,10 +12,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 go build -o bin/nsec3walker .   # local build
 go install .                     # install into $GOPATH/bin
 
-make [all,linux,linux_amd64,linux_arm64,mac,mac_amd64,mac_arm64,windows,clean]
+make [all,linux,linux_amd64,linux_arm64,mac,mac_amd64,mac_arm64,windows,clean,test,race,bench]
 
-go test ./...                                   # run all tests
+go test ./...                                   # run all tests, quiet on pass (same as `make test`)
 go test -run TestHashTree_ClosestBefore ./internal   # run a single test
+go test -race ./...                             # concurrency-sensitive code (walker.go, range.go) - run before considering such changes done; same as `make race`
+go test -run '^$' -bench . -benchmem ./internal/...  # run all benchmarks, no tests; same as `make bench`
 
 go fmt ./...
 go vet ./...
@@ -50,5 +52,9 @@ Because NSEC3 hashing is expensive and zones can be huge, correctness of `RangeI
 - `CsvUpdate` merges newly-cracked plaintexts back into the CSV by writing a `.tmp` file and atomically replacing the original (`Csv.Replace` refuses to replace if the temp file is smaller — a corruption guard).
 - `Dump` implements `file --dump-domains`/`--dump-wordlist`, extracting plaintext domains from CSV and/or Hashcat potfiles, optionally stripping the base domain suffix to produce wordlist fragments.
 
-### Note on repo layout
-There is a git-ignored `_/` directory containing an older/experimental copy of `cracking.go` — it is not part of the build (excluded via `.gitignore`) and can be ignored.
+## Testing conventions
+
+- New or changed behavior needs a test alongside it (`internal/*_test.go`); run the suite (`go test ./...`) before calling a task done, not just `go build`.
+- Much of this codebase is concurrent (`DomainGenerator` fan-out, per-NS worker goroutines in `walker.go`, the mutexes in `range.go`) — when touching that code, verify with `make race` (`go test -race ./...`) too.
+- When a change is meant to affect performance (hashing, `RangeIndex` lookups/inserts, hot loops in the walk pipeline), add or update a `Benchmark*` alongside the test and report before/after numbers via `go test -run '^$' -bench . -benchmem ./internal/...`. See `internal/range_test.go` for existing examples (`BenchmarkRangeIndex_Add`, `BenchmarkRangeIndex_isHashInRange` and its `_Miss` variant, `BenchmarkRangeIndex_Concurrent`).
+

@@ -109,7 +109,7 @@ func (nw *NSec3Walker) RunWalk() (err error) {
 	}
 
 	nw.chanDomain = make(chan *Domain, sizeChanDomain)
-	dg, err := NewDomainGenerator(nw.nsec.domain, nw.nsec.saltString, nw.nsec.iterations, nw.ranges, nw.out)
+	dg, err := NewDomainGenerator(nw.nsec.domain, nw.nsec.saltString, nw.nsec.iterations, nw.ranges, nw.out, nw.stats)
 	if err != nil {
 		return
 	}
@@ -189,7 +189,7 @@ func (nw *NSec3Walker) processHashes() (err error) {
 		}
 
 		if nw.ranges.isFinished() {
-			nw.out.Log(fmt.Sprintf("Finished with %d hashes", nw.stats.hashes.Load()))
+			nw.out.Log(fmt.Sprintf("Finished with %d hashes, in %s", nw.stats.hashes.Load(), formatDuration(nw.stats.Elapsed())))
 
 			return
 		}
@@ -292,8 +292,7 @@ func (nw *NSec3Walker) workerForAuthNs(ns string) {
 			continue
 		}
 
-		time.Sleep(time.Millisecond * WaitMs)
-
+		queryStart := time.Now()
 		err := nw.extractNSEC3Hashes(domain.Domain, ns)
 		nw.stats.didQuery()
 
@@ -310,6 +309,13 @@ func (nw *NSec3Walker) workerForAuthNs(ns string) {
 			} else {
 				nw.out.Log(fmt.Sprintf("Error querying [%s]: %v", domain.Domain, err))
 			}
+		}
+
+		// Pace queries to at most one per WaitMs per worker, but let the
+		// wait overlap with the query's own round-trip time instead of
+		// stacking on top of it.
+		if wait := time.Millisecond*WaitMs - time.Since(queryStart); wait > 0 {
+			time.Sleep(wait)
 		}
 	}
 
@@ -329,10 +335,11 @@ func (nw *NSec3Walker) logVerbose(text string) {
 }
 
 func (nw *NSec3Walker) isDomainInRange(domain *Domain) (inRange bool) {
-	inRange, where := nw.ranges.isHashInRange(domain.Hash)
+	var rangeStart, rangeEnd string
+	inRange, rangeStart, rangeEnd = nw.ranges.isHashInRange(domain.Hash)
 
-	if inRange {
-		nw.logVerbose(fmt.Sprintf("Domain in range [%s] <= %s (%s)", where, domain.Hash, domain.Domain))
+	if inRange && nw.config.Verbose {
+		nw.logVerbose(fmt.Sprintf("Domain in range [%s=%s] <= %s (%s)", rangeStart, rangeEnd, domain.Hash, domain.Domain))
 	}
 
 	return

@@ -33,7 +33,7 @@ const (
 	FlagSalt              = "salt"
 	FlagIterations        = "iterations"
 	FlagUpdateCsv         = ActionUpdateCsv
-	GenericServers        = "8.8.8.8:53,8.8.4.4:53,1.1.1.1:53,77.88.8.8"
+	GenericServers        = "8.8.8.8:53,8.8.4.4:53,1.1.1.1:53"
 	HashRegexp            = `^[0-9a-v]{32}$`
 	LogCounterIntervalSec = 30
 	QuitAfterMin          = 5

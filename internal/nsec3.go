@@ -167,26 +167,41 @@ func domainToWire(domain string) (domainB []byte, err error) {
 	}
 
 	domain = strings.TrimSuffix(domain, ".")
-	labels := strings.Split(domain, ".")
 
-	// Calculate required size for wire format
-	size := 0
-	for _, label := range labels {
-		size += len(label) + 1 // +1 for length byte
-	}
-	size++ // +1 for root label (zero byte)
+	// Every label contributes its bytes plus one length-prefix byte, and
+	// the dots separating them are dropped, so the wire form is always
+	// exactly len(domain)+1 bytes plus the root's trailing zero byte -
+	// avoids re-deriving the size from a strings.Split allocation.
+	wire := make([]byte, 0, len(domain)+2)
+	rest := domain
 
-	wire := make([]byte, 0, size)
-	for _, label := range labels {
-		if len(label) > 63 {
-			return nil, fmt.Errorf("label too long: %s", label)
+	for {
+		i := strings.IndexByte(rest, '.')
+		var label string
+
+		if i < 0 {
+			label = rest
+			rest = ""
+		} else {
+			label = rest[:i]
+			rest = rest[i+1:]
 		}
+
 		if len(label) == 0 {
 			return nil, fmt.Errorf("empty label in domain name")
 		}
+		if len(label) > 63 {
+			return nil, fmt.Errorf("label too long: %s", label)
+		}
+
 		wire = append(wire, byte(len(label)))
-		wire = append(wire, []byte(label)...)
+		wire = append(wire, label...)
+
+		if i < 0 {
+			break
+		}
 	}
+
 	wire = append(wire, 0) // Add root label
 
 	return wire, nil
